@@ -1,6 +1,7 @@
 #include "ctranslate2/models/language_model.h"
 
 #include "ctranslate2/decoding.h"
+#include "ctranslate2/layers/transformer.h"
 
 namespace ctranslate2 {
   namespace models {
@@ -399,6 +400,47 @@ namespace ctranslate2 {
         output.pooler_output = std::move(pooler_output);
       }
 
+      return output;
+    }
+
+
+    DecoderEncoderReplica::DecoderEncoderReplica(
+        const std::shared_ptr<const LanguageModel>& model,
+        std::unique_ptr<layers::TransformerDecoder> decoder)
+      : SequenceEncoderReplica(model)
+      , _model(model)
+      , _decoder(std::move(decoder))
+    {
+    }
+
+    EncoderForwardOutput
+    DecoderEncoderReplica::forward_impl(const StorageView& ids,
+                                        const StorageView& lengths,
+                                        const StorageView& token_type_ids) {
+      (void)token_type_ids;
+
+      if (ids.rank() != 2)
+        throw std::invalid_argument("Expected input ids to have 2 dimensions, but got "
+                                    + std::to_string(ids.rank())
+                                    + " dimension(s) instead");
+      if (lengths.size() != ids.dim(0))
+        throw std::invalid_argument("Expected lengths vector to have size "
+                                    + std::to_string(ids.dim(0))
+                                    + ", but got size "
+                                    + std::to_string(lengths.size())
+                                    + " instead");
+
+      auto& decoder = *_decoder;
+
+      auto state = decoder.initial_state(/*iterative_decoding=*/false);
+
+      StorageView last_hidden_state(decoder.output_type(), decoder.device());
+      decoder.decode(ids, &lengths, /*step=*/-1, state,
+                     &last_hidden_state, /*attention=*/nullptr,
+                     /*return_logits=*/false);
+
+      EncoderForwardOutput output;
+      output.last_hidden_state = std::move(last_hidden_state);
       return output;
     }
 

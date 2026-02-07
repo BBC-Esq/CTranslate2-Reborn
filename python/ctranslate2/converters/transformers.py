@@ -76,6 +76,7 @@ class TransformersConverter(Converter):
         revision: Optional[str] = None,
         low_cpu_mem_usage: bool = False,
         trust_remote_code: bool = False,
+        model_type: Optional[str] = None,
     ):
         """Initializes the converter.
 
@@ -94,6 +95,10 @@ class TransformersConverter(Converter):
           low_cpu_mem_usage: Enable the flag ``low_cpu_mem_usage`` when loading the model
             with ``from_pretrained``.
           trust_remote_code: Allow converting models using custom code.
+          model_type: Override the model type used for loader selection. This is
+            useful when a single configuration class supports multiple model
+            architectures (e.g. "Qwen3Embedding" to convert a Qwen3 model as an
+            encoder for embeddings instead of a causal language model).
         """
         self._model_name_or_path = model_name_or_path
         self._activation_scales = activation_scales
@@ -102,6 +107,7 @@ class TransformersConverter(Converter):
         self._revision = revision
         self._low_cpu_mem_usage = low_cpu_mem_usage
         self._trust_remote_code = trust_remote_code
+        self._model_type = model_type
 
     def _load(self):
         with torch.no_grad():
@@ -109,7 +115,10 @@ class TransformersConverter(Converter):
                 self._model_name_or_path, trust_remote_code=self._trust_remote_code
             )
 
-            config_name = config.__class__.__name__
+            if self._model_type is not None:
+                config_name = self._model_type
+            else:
+                config_name = config.__class__.__name__
             loader = _MODEL_LOADERS.get(config_name)
 
             if loader is None:
@@ -2802,6 +2811,58 @@ class Qwen3Loader(ModelLoader):
             gc.collect()
 
 
+@register_loader("Qwen3Embedding")
+class Qwen3EmbeddingLoader(Qwen3Loader):
+    @property
+    def architecture_name(self):
+        return "Qwen3Model"
+
+    def get_model_spec(self, model):
+        num_layers = model.config.num_hidden_layers
+        num_heads = model.config.num_attention_heads
+        num_heads_kv = getattr(model.config, "num_key_value_heads", num_heads)
+        head_dim = getattr(
+            model.config, "head_dim", model.config.hidden_size // num_heads
+        )
+
+        if num_heads_kv == num_heads:
+            num_heads_kv = None
+
+        rotary_scaling_type, rotary_scaling_factor, rope_theta = (
+            self.get_rotary_params(model.config, 1_000_000)
+        )
+
+        spec = transformer_spec.TransformerDecoderModelSpec.from_config(
+            num_layers,
+            num_heads,
+            activation=common_spec.Activation.SWISH,
+            pre_norm=True,
+            ffn_glu=True,
+            rms_norm=True,
+            rotary_dim=model.config.head_dim,
+            rotary_interleave=False,
+            rotary_scaling_type=rotary_scaling_type,
+            rotary_scaling_factor=rotary_scaling_factor,
+            rotary_base=rope_theta,
+            num_heads_kv=num_heads_kv,
+            head_dim=head_dim,
+            qk_norm=True,
+        )
+
+        # Qwen3Model is the base model without an LM head. Set the decoder
+        # weights using the parent Qwen3Loader.set_decoder which accesses
+        # module.embed_tokens, module.layers, and module.norm.
+        self.set_decoder(spec.decoder, model)
+
+        # The projection (LM head) is required by the spec. Since
+        # tie_word_embeddings=True, we reuse the embedding weights. At
+        # runtime the projection is unused when the model is loaded as an
+        # Encoder (the decoder runs with return_logits=false).
+        spec.decoder.projection.weight = model.embed_tokens.weight
+
+        return spec
+
+
 @register_loader("MixFormerSequentialConfig")
 class MixFormerSequentialLoader(ModelLoader):
     @property
@@ -3653,6 +3714,16 @@ def main():
         action="store_true",
         help="Allow converting models using custom code.",
     )
+    parser.add_argument(
+        "--model_type",
+        default=None,
+        help=(
+            "Override the model type used for loader selection. This is useful "
+            "when a single configuration class supports multiple model "
+            'architectures (e.g. "Qwen3Embedding" to convert a Qwen3 model as '
+            "an encoder for embeddings instead of a causal language model)."
+        ),
+    )
 
     Converter.declare_arguments(parser)
     args = parser.parse_args()
@@ -3664,6 +3735,7 @@ def main():
         revision=args.revision,
         low_cpu_mem_usage=args.low_cpu_mem_usage,
         trust_remote_code=args.trust_remote_code,
+        model_type=args.model_type,
     )
     converter.convert_from_args(args)
 

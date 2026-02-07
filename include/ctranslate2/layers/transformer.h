@@ -196,11 +196,6 @@ namespace ctranslate2 {
         return true;
       }
 
-    protected:
-      Dense& output_layer() override {
-        return _proj;
-      }
-
       void decode(const StorageView& ids,
                   const StorageView* lengths,
                   dim_t step,
@@ -208,6 +203,11 @@ namespace ctranslate2 {
                   StorageView* outputs = nullptr,
                   StorageView* attention = nullptr,
                   bool return_logits = true);
+
+    protected:
+      Dense& output_layer() override {
+        return _proj;
+      }
 
       const dim_t _num_heads;
       const ComputeType _compute_type;

@@ -118,6 +118,16 @@ namespace ctranslate2 {
       return std::make_unique<DecoderReplica>(model, std::move(decoder));
     }
 
+    std::unique_ptr<SequenceEncoderReplica>
+    TransformerDecoderModel::as_sequence_encoder() const {
+      const auto scoped_device_setter = get_scoped_device_setter();
+
+      auto decoder = std::make_unique<layers::TransformerDecoder>(*this, "decoder");
+
+      const auto model = std::static_pointer_cast<const TransformerDecoderModel>(shared_from_this());
+      return std::make_unique<DecoderEncoderReplica>(model, std::move(decoder));
+    }
+
     bool TransformerDecoderModel::is_linear_weight(const std::string& variable_name) const {
       return is_quantizable(variable_name) && variable_name.find("embeddings") == std::string::npos;
     }

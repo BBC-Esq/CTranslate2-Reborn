@@ -30,6 +30,7 @@ namespace ctranslate2 {
     public:
       size_t current_spec_revision() const override;
       std::unique_ptr<SequenceGeneratorReplica> as_sequence_generator() const override;
+      std::unique_ptr<SequenceEncoderReplica> as_sequence_encoder() const override;
 
     protected:
       bool is_linear_weight(const std::string& variable_name) const override;

@@ -8,6 +8,11 @@
 #include "ctranslate2/scoring.h"
 
 namespace ctranslate2 {
+
+  namespace layers {
+    class TransformerDecoder;
+  }
+
   namespace models {
 
     // Base class for language models.
@@ -159,6 +164,26 @@ namespace ctranslate2 {
       const std::unique_ptr<layers::Encoder> _encoder;
       const ops::ActivationType _pooler_activation;
       const std::unique_ptr<layers::Dense> _pooler_dense;
+    };
+
+
+    // A model encoding sequences using a decoder layer (causal attention).
+    // This is used for decoder-based embedding models like Qwen3-Embedding
+    // that produce embeddings from the last hidden state of a causal decoder.
+    class DecoderEncoderReplica : public SequenceEncoderReplica {
+    public:
+      DecoderEncoderReplica(const std::shared_ptr<const LanguageModel>& model,
+                            std::unique_ptr<layers::TransformerDecoder> decoder);
+
+    protected:
+      EncoderForwardOutput
+      forward_impl(const StorageView& ids,
+                   const StorageView& lengths,
+                   const StorageView& token_type_ids) override;
+
+    private:
+      const std::shared_ptr<const LanguageModel> _model;
+      const std::unique_ptr<layers::TransformerDecoder> _decoder;
     };
 
   }

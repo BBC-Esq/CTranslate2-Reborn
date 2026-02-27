@@ -17,6 +17,16 @@ if sys.platform == "win32":
     except (FileNotFoundError, OSError):
         pass
 
+    # Add CUDA toolkit bin directory for Flash Attention 2 kernel dependencies
+    cuda_path = os.environ.get("CUDA_PATH", "")
+    if cuda_path:
+        cuda_bin = os.path.join(cuda_path, "bin")
+        if os.path.isdir(cuda_bin):
+            try:
+                os.add_dll_directory(cuda_bin)
+            except (FileNotFoundError, OSError):
+                pass
+
     for library in glob.glob(os.path.join(package_dir, "*.dll")):
         ctypes.CDLL(library)
 

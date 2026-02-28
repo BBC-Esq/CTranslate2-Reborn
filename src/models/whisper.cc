@@ -69,9 +69,12 @@ namespace ctranslate2 {
       _no_speech_id = vocabulary.to_id("<|nospeech|>");
       if (_no_speech_id == vocabulary.unk_id())
         _no_speech_id = vocabulary.to_id("<|nocaptions|>");
-      _is_multilingual = vocabulary.size() >= 51865;
+      _is_multilingual = vocabulary.to_id("") != vocabulary.unk_id();
       _n_mels = _encoder->input_size();
-      _num_languages = vocabulary.size() - 51765 - (_is_multilingual ? 1 : 0);
+      // vocab: text tokens..., <|endoftext|>, <|startoftranscript|>,
+      // lang tokens..., <|translate|>, <|transcribe|>, <|startoflm|>,
+      // <|startofprev|>, <|nospeech|>, <|notimestamps|>, time tokens...
+      _num_languages = _no_speech_id - _sot_id - 5;
     }
 
     StorageView WhisperReplica::encode(StorageView features, const bool to_cpu) {
@@ -389,16 +392,17 @@ namespace ctranslate2 {
       const ops::MedianFilter median_filter_op(median_filter_width);
       const dim_t batch_size = attention_probs.dim(0);
 
-      // The remaining operations are not implemented on GPU, so move back to CPU.
-      attention_probs.move_to(Device::CPU, DataType::FLOAT32);
-
       ops::LayerNorm(-2, 0)(attention_probs);
 
-      StorageView median_filter;
+      StorageView median_filter(attention_probs.dtype(), attention_probs.device());
       median_filter_op(attention_probs, median_filter);
 
-      StorageView weights;
+      StorageView weights(median_filter.dtype(), median_filter.device());
       ops::Mean(1)(median_filter, weights);
+
+      // The remaining operations are not implemented on GPU, so move back to CPU.
+      synchronize_stream(weights.device());
+      weights.move_to(Device::CPU, DataType::FLOAT32);
 
       std::vector<std::vector<std::pair<dim_t, dim_t>>> alignments;
       alignments.reserve(batch_size);

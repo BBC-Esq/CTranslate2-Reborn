@@ -170,6 +170,8 @@ namespace ctranslate2 {
     // A model encoding sequences using a decoder layer (causal attention).
     // This is used for decoder-based embedding models like Qwen3-Embedding
     // that produce embeddings from the last hidden state of a causal decoder.
+    // pooler_output is set to the (unnormalized) hidden state of the last
+    // token of each sequence, which accounts for padding.
     class DecoderEncoderReplica : public SequenceEncoderReplica {
     public:
       DecoderEncoderReplica(const std::shared_ptr<const LanguageModel>& model,

@@ -430,6 +430,16 @@ namespace ctranslate2 {
                                     + std::to_string(lengths.size())
                                     + " instead");
 
+      // Sequences are padded on the right, so the last token of each sequence is at
+      // position length - 1 rather than at the last position of the padded batch.
+      std::vector<int32_t> last_positions = lengths.to_vector<int32_t>();
+      for (int32_t& position : last_positions) {
+        if (position < 1)
+          throw std::invalid_argument("Expected every input sequence to contain at least "
+                                      "one token");
+        position -= 1;
+      }
+
       auto& decoder = *_decoder;
 
       auto state = decoder.initial_state(/*iterative_decoding=*/false);
@@ -441,6 +451,17 @@ namespace ctranslate2 {
 
       EncoderForwardOutput output;
       output.last_hidden_state = std::move(last_hidden_state);
+
+      // Decoder-based embedding models (e.g. Qwen3-Embedding) use last-token pooling.
+      // The pooled state is not normalized, so that callers can truncate it first
+      // (Matryoshka embeddings) and then normalize.
+      const StorageView last_index({ids.dim(0)}, last_positions, decoder.device());
+      StorageView pooler_output(decoder.output_type(), decoder.device());
+      ops::Gather(/*axis=*/1, /*batch_dims=*/1)(output.last_hidden_state,
+                                                last_index,
+                                                pooler_output);
+      output.pooler_output = std::move(pooler_output);
+
       return output;
     }
 

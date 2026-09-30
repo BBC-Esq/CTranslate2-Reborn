@@ -52,7 +52,9 @@ namespace ctranslate2 {
         .def_readonly("last_hidden_state", &EncoderForwardOutput::last_hidden_state,
                       "Output of the last layer.")
         .def_readonly("pooler_output", &EncoderForwardOutput::pooler_output,
-                      "Output of the pooling layer.")
+                      "Output of the pooling layer. For decoder-based embedding models "
+                      "(e.g. Qwen3-Embedding), the unnormalized hidden state of the last "
+                      "token of each sequence.")
 
         .def("__repr__", [](const EncoderForwardOutput& output) {
           return "EncoderForwardOutput(last_hidden_state="

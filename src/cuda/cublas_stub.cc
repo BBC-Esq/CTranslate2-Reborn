@@ -55,7 +55,11 @@ namespace ctranslate2 {
 #ifdef _WIN32
       std::string cuda_path = read_string_from_env("CUDA_PATH");
       if (!cuda_path.empty()) {
+#  if CUBLAS_VER_MAJOR >= 13
+        cuda_path += "\\bin\\x64";  // CUDA 13 moved the Windows DLLs from bin to bin\x64.
+#  else
         cuda_path += "\\bin";
+#  endif
         SetDllDirectoryA(cuda_path.c_str());
       }
       void* handle = static_cast<void*>(LoadLibraryA(CUBLAS_LIBNAME));

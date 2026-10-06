@@ -69,7 +69,7 @@ namespace ctranslate2 {
 
       if (!activation_type) {
         dequantize_gemm_output_kernel<<<blocks, threads, 0, cuda::get_cuda_stream()>>>(
-          c, a_scales, b_scales, transpose_a, transpose_b, bias, thrust::identity<T>(), y, depth);
+          c, a_scales, b_scales, transpose_a, transpose_b, bias, cuda::identity<T>(), y, depth);
 
       } else {
         switch (*activation_type) {

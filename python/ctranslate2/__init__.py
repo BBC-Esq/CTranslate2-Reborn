@@ -17,6 +17,10 @@ if sys.platform == "win32":
     except (FileNotFoundError, OSError):
         pass
 
+    # Builds with WITH_CUDNN=ON (off by default) also link cudnn64_9.dll, which is not bundled.
+    # Its folder must then be added here with os.add_dll_directory, e.g. CUDA_PATH\bin, or
+    # CUDA_PATH\bin\x64 with CUDA 13 (the CUDA 12 and 13 builds of cuDNN share the file name).
+
     for library in glob.glob(os.path.join(package_dir, "*.dll")):
         ctypes.CDLL(library)
 

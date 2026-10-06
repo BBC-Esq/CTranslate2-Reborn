@@ -17,15 +17,16 @@ if sys.platform == "win32":
     except (FileNotFoundError, OSError):
         pass
 
-    # Add CUDA toolkit bin directory for Flash Attention 2 kernel dependencies
+    # Directories holding the CUDA toolkit's DLLs, such as cudnn64_9.dll, which builds with
+    # WITH_CUDNN=ON link directly. CUDA 13 moved them from bin to bin\x64.
     cuda_path = os.environ.get("CUDA_PATH", "")
     if cuda_path:
-        cuda_bin = os.path.join(cuda_path, "bin")
-        if os.path.isdir(cuda_bin):
-            try:
-                os.add_dll_directory(cuda_bin)
-            except (FileNotFoundError, OSError):
-                pass
+        for cuda_bin in (os.path.join(cuda_path, "bin"), os.path.join(cuda_path, "bin", "x64")):
+            if os.path.isdir(cuda_bin):
+                try:
+                    os.add_dll_directory(cuda_bin)
+                except (FileNotFoundError, OSError):
+                    pass
 
     for library in glob.glob(os.path.join(package_dir, "*.dll")):
         ctypes.CDLL(library)

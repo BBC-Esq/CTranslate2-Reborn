@@ -203,6 +203,13 @@ namespace ctranslate2 {
       }
     };
 
+    template <typename T>
+    struct identity {
+      __device__ T operator()(const T& x) const {
+        return x;
+      }
+    };
+
 #if !CUDA_CAN_USE_HALF
     template<>
     struct plus<__half> {

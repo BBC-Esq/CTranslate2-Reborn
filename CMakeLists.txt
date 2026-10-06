@@ -521,6 +521,8 @@ if (WITH_CUDA)
     else()
       list(APPEND CUDA_NVCC_FLAGS "-Xcompiler=/MT$<$<CONFIG:Debug>:d>")
     endif()
+    # CCCL 3 requires MSVC's standard-conforming preprocessor.
+    list(APPEND CUDA_NVCC_FLAGS "-Xcompiler=/Zc:preprocessor")
   endif()
   list(APPEND CUDA_NVCC_FLAGS "-std=c++17")
   if(OpenMP_CXX_FOUND)

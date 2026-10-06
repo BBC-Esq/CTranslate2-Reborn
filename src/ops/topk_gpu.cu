@@ -136,11 +136,25 @@ namespace hipcub {
 }
 #else
 #include <cub/block/block_reduce.cuh>
+#include <cuda/std/limits>
 #endif
 
 namespace fastertransformer {
 
 #define NOT_FOUND -1
+
+  // Lowest finite value of T. CCCL 3 removed cub::FpLimits in favor of cuda::std::numeric_limits.
+  template <typename T>
+  __host__ __device__ __forceinline__ T lowest_value() {
+#ifdef CT2_USE_HIP
+    return cub::FpLimits<T>::Lowest();
+#else
+    // Without a specialization, lowest() would silently return T() = 0.
+    static_assert(cuda::std::numeric_limits<T>::is_specialized,
+                  "cuda::std::numeric_limits is not specialized for this type");
+    return cuda::std::numeric_limits<T>::lowest();
+#endif
+  }
 
   template <typename T>
   __device__ __forceinline__ bool greater(const T& a, const T& b) {
@@ -157,7 +171,7 @@ namespace fastertransformer {
   template <typename T>
   struct TopK {
     int p = NOT_FOUND;
-    T u = cub::FpLimits<T>::Lowest();
+    T u = lowest_value<T>();
 
     __device__ __forceinline__ void insert(T elem, int elem_id) {
       if (greater(elem, u)) {
@@ -167,7 +181,7 @@ namespace fastertransformer {
     }
 
     __device__ __forceinline__ void init() {
-      u = cub::FpLimits<T>::Lowest();
+      u = lowest_value<T>();
       p = NOT_FOUND;
     }
   };
@@ -213,7 +227,7 @@ namespace fastertransformer {
         topk_tmp_val_buf[index] = total.u;
         // If we found a max, blank out the value in the log prob array before starting the next iteration
         if (total.p != NOT_FOUND)
-          log_probs[total.p] = cub::FpLimits<T>::Lowest();
+          log_probs[total.p] = lowest_value<T>();
       }
       __syncthreads();
     }
@@ -261,7 +275,7 @@ namespace fastertransformer {
         topks[ite] = total;
         // An exhausted reduction has no value to invalidate.
         if (total.p != NOT_FOUND)
-          s_val[total.p] = cub::FpLimits<T>::Lowest();
+          s_val[total.p] = lowest_value<T>();
       }
       __syncthreads();
     }

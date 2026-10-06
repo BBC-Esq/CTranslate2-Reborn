@@ -537,6 +537,11 @@ if (WITH_CUDA)
     if(CUDA_VERSION_MAJOR EQUAL 11)
       list(INSERT CUDA_ARCH_LIST 0 "3.5" "5.0")
     endif()
+    # FindCUDA's list stops at 8.6+PTX: add native code for Ada, Hopper and Blackwell.
+    if(CUDA_VERSION VERSION_GREATER_EQUAL 12.8)
+      list(REMOVE_ITEM CUDA_ARCH_LIST "8.6+PTX")
+      list(APPEND CUDA_ARCH_LIST "8.6" "8.9" "9.0" "10.0" "12.0+PTX")
+    endif()
     list(REMOVE_DUPLICATES CUDA_ARCH_LIST)
   endif()
 

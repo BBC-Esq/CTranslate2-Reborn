@@ -15,7 +15,3 @@ pip uninstall -y ctranslate2
 curl -o transliteration-aren-all.tar.gz https://opennmt-models.s3.amazonaws.com/transliteration-aren-all.tar.gz
 tar xf transliteration-aren-all.tar.gz -C tests/data/models/
 rm transliteration-aren-all.tar.gz
-
-curl -O https://object.pouta.csc.fi/OPUS-MT-models/en-de/opus-2020-02-26.zip
-unzip opus-2020-02-26.zip -d tests/data/models/opus-mt-ende
-rm opus-2020-02-26.zip

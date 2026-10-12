@@ -144,7 +144,6 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "numpy",
-        "pyyaml>=5.3,<7",
     ],
     extras_require={
         "cuda": [
@@ -155,12 +154,6 @@ setup(
     cmdclass={"build_py": BuildPy},
     entry_points={
         "console_scripts": [
-            "ct2-fairseq-converter=ctranslate2.converters.fairseq:main",
-            "ct2-marian-converter=ctranslate2.converters.marian:main",
-            "ct2-openai-gpt2-converter=ctranslate2.converters.openai_gpt2:main",
-            "ct2-opennmt-py-converter=ctranslate2.converters.opennmt_py:main",
-            "ct2-opennmt-tf-converter=ctranslate2.converters.opennmt_tf:main",
-            "ct2-opus-mt-converter=ctranslate2.converters.opus_mt:main",
             "ct2-transformers-converter=ctranslate2.converters.transformers:main",
         ],
     },

@@ -261,14 +261,15 @@ def test_transformers_generation(
 
 @test_utils.only_on_linux
 def test_transformers_dtype(clear_transformers_cache, tmp_dir):
-    converter = ctranslate2.converters.TransformersConverter("facebook/opt-350m")
+    converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
     output_dir = str(tmp_dir.join("ctranslate2_model"))
     output_dir = converter.convert(output_dir)
 
     model_b = os.path.getsize(os.path.join(output_dir, "model.bin"))
     model_mb = model_b / (1000**2)
 
-    assert model_mb < 700
+    # The bfloat16 checkpoint takes about 1.2 GB, or 2.4 GB if upcast to float32.
+    assert model_mb < 1300
 
 
 @test_utils.only_on_linux
@@ -484,7 +485,7 @@ class TestGeneration:
 
     @test_utils.only_on_linux
     def test_transformers_lm_scoring(self, tmp_dir):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -515,14 +516,18 @@ class TestGeneration:
         import torch
         import transformers
 
-        model_name = "gpt2"
+        model_name = "Qwen/Qwen3-0.6B"
 
-        model = transformers.GPT2LMHeadModel.from_pretrained(model_name)
+        model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_name, dtype=torch.float32
+        )
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
         converter = ctranslate2.converters.TransformersConverter(model_name)
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
-        generator = ctranslate2.Generator(output_dir, device=device)
+        generator = ctranslate2.Generator(
+            output_dir, device=device, compute_type="float32"
+        )
 
         text = ["Hello world!"]
 
@@ -565,17 +570,17 @@ class TestGeneration:
             output = torch.as_tensor(output, device=device).cpu().numpy()
 
         assert output.shape == ref_output.shape
-        np.testing.assert_allclose(output, ref_output, rtol=1e-2)
+        np.testing.assert_allclose(output, ref_output, rtol=1e-2, atol=1e-4)
 
     @test_utils.only_on_linux
     def test_transformers_generator_on_iterables(self, tmp_dir):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
 
         start_tokens = ["<|endoftext|>"]
-        tokens = "Ċ The Ġfirst Ġtime ĠI Ġsaw Ġthe Ġnew Ġversion Ġof".split()
+        tokens = "Question : ĠWhat Ġis Ġthe Ġvalue Ġof Ġthe Ġexpression Ġ".split()
         output = next(generator.generate_iterable(iter([start_tokens]), max_length=10))
         assert output.sequences[0] == tokens
 
@@ -591,7 +596,7 @@ class TestGeneration:
 
     @test_utils.only_on_linux
     def test_transformers_generator_suppress_sequences(self, tmp_dir):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -599,16 +604,16 @@ class TestGeneration:
         output = generator.generate_batch(
             [["<|endoftext|>"]],
             max_length=10,
-            suppress_sequences=[["Ġfirst", "Ġtime"]],
+            suppress_sequences=[["ĠWhat", "Ġis"]],
         )
 
-        expected_tokens = "Ċ The Ġfirst Ġof Ġthe Ġthree Ġnew Ġseries Ġof Ġthe".split()
-        assert output[0].sequences[0] == expected_tokens
+        expected_tokens = "Question : ĠWhat Ġare Ġthe Ġkey Ġfeatures Ġof Ġthe Ġnew"
+        assert output[0].sequences[0] == expected_tokens.split()
 
     @test_utils.only_on_linux
     @pytest.mark.parametrize("beam_size", [1, 2])
     def test_transformers_generator_ignore_prompt(self, tmp_dir, beam_size):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -646,7 +651,7 @@ class TestGeneration:
     @test_utils.only_on_linux
     @pytest.mark.parametrize("beam_size", [1, 2])
     def test_transformers_generator_ignore_prompt_batch(self, tmp_dir, beam_size):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -670,7 +675,7 @@ class TestGeneration:
 
     @test_utils.only_on_linux
     def test_transformers_generator_static_prompt(self, tmp_dir):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -716,7 +721,7 @@ class TestGeneration:
     @test_utils.only_on_linux
     @pytest.mark.parametrize("return_log_prob", [True, False])
     def test_transformers_generator_token_streaming(self, tmp_dir, return_log_prob):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)
@@ -762,7 +767,7 @@ class TestGeneration:
 
     @test_utils.only_on_linux
     def test_transformers_generator_token_streaming_early_stop(self, tmp_dir):
-        converter = ctranslate2.converters.TransformersConverter("gpt2")
+        converter = ctranslate2.converters.TransformersConverter("Qwen/Qwen3-0.6B")
         output_dir = str(tmp_dir.join("ctranslate2_model"))
         output_dir = converter.convert(output_dir)
         generator = ctranslate2.Generator(output_dir)

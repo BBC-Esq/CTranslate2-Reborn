@@ -453,7 +453,7 @@ jobs:
 
       - name: Test Python wheel
         run: |
-          pytest -v python/tests/ --ignore=python/tests/test_fairseq.py --ignore=python/tests/test_opennmt_py.py --ignore=python/tests/test_opennmt_tf.py
+          pytest -v python/tests/
 
 
   test-python314-native-finalizer:
@@ -488,44 +488,6 @@ jobs:
           # but aborts with exit 134 while Python releases heap types.
           python -X dev -W error::ResourceWarning \
             -c 'import ctranslate2; print(ctranslate2.__version__)'
-
-  test-legacy-converters:
-    needs: [build-python-wheels]
-    runs-on: ubuntu-22.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Download Python wheels
-        uses: actions/download-artifact@v4
-        with:
-          pattern: python-wheels-Linux-auto64
-          merge-multiple: true
-          path: .
-
-      - name: Install wheel and legacy dependencies
-        run: |
-          pip install 'pip<24.1'
-          pip install *cp310*manylinux*x86_64.whl
-          pip install -r python/tests/requirements-legacy.txt --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install --upgrade hydra-core
-
-      - name: Download test data
-        run: |
-          curl -o transliteration-aren-all.tar.gz https://opennmt-models.s3.amazonaws.com/transliteration-aren-all.tar.gz
-          tar xf transliteration-aren-all.tar.gz -C tests/data/models/
-          rm transliteration-aren-all.tar.gz
-
-      - name: Test legacy converters
-        env:
-          TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: 1
-        run: |
-          pytest -v python/tests/test_fairseq.py python/tests/test_opennmt_py.py python/tests/test_opennmt_tf.py -p no:hydra
 
   check-python-style:
     runs-on: ubuntu-latest
@@ -593,7 +555,6 @@ jobs:
       - build-python-wheels
       - test-python-wheels
       - test-python314-native-finalizer
-      - test-legacy-converters
       - check-python-style
     runs-on: ubuntu-22.04
 

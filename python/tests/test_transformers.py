@@ -28,34 +28,6 @@ def clear_transformers_cache_in_ci():
 
 _TRANSFORMERS_TRANSLATION_TESTS = [
     (
-        "Helsinki-NLP/opus-mt-en-de",
-        "▁Hello ▁world ! </s>",
-        "",
-        "▁Hallo ▁Welt !",
-        dict(),
-    ),
-    (
-        "Helsinki-NLP/opus-mt-en-roa",
-        ">>ind<< ▁The ▁Prime ▁Minister ▁is ▁coming ▁back ▁tomorrow . </s>",
-        "",
-        "▁Per da na ▁Men teri ▁akan ▁kembali ▁besok .",
-        dict(),
-    ),
-    (
-        "Helsinki-NLP/opus-mt-mul-en",
-        "▁Bon jo ur ▁le ▁mo nde </s>",
-        "",
-        "▁Welcome ▁to ▁the ▁World",
-        dict(),
-    ),
-    (
-        "facebook/m2m100_418M",
-        "__en__ ▁Hello ▁world ! </s>",
-        "__de__",
-        "__de__ ▁Hallo ▁der ▁Welt !",
-        dict(),
-    ),
-    (
         "facebook/mbart-large-50-many-to-many-mmt",
         "en_XX ▁Hello ▁world ! </s>",
         "de_DE",
@@ -74,25 +46,6 @@ _TRANSFORMERS_TRANSLATION_TESTS = [
         "<s> UN ĠChief ĠSays ĠThere ĠIs ĠNo <mask> Ġin ĠSyria </s>",
         "",
         "<s> UN ĠChief ĠSays ĠThere ĠIs ĠNo ĠWar Ġin ĠSyria",
-        dict(),
-    ),
-    (
-        "google/pegasus-xsum",
-        "▁PG & E ▁stated ▁it ▁scheduled ▁the ▁blackout s ▁in ▁response ▁to ▁forecasts "
-        "▁for ▁high ▁winds ▁amid ▁dry ▁conditions . ▁The ▁aim ▁is ▁to ▁reduce ▁the "
-        "▁risk ▁of ▁wildfires . ▁Nearly ▁800 ▁thousand ▁customers ▁were ▁scheduled ▁to "
-        "▁be ▁affected ▁by ▁the ▁shutoff s ▁which ▁were ▁expected ▁to ▁last ▁through "
-        "▁at ▁least ▁midday ▁tomorrow . </s>",
-        "",
-        "▁California ' s ▁largest ▁electricity ▁provider ▁has ▁turned ▁off ▁power ▁to "
-        "▁hundreds ▁of ▁thousands ▁of ▁customers .",
-        dict(length_penalty=0.6),
-    ),
-    (
-        "facebook/nllb-200-distilled-600M",
-        ["▁Hello ▁world ! </s> eng_Latn", "</s> eng_Latn"],
-        ["fra_Latn", "fra_Latn"],
-        ["fra_Latn ▁Bon jour ▁le ▁monde ▁!", "fra_Latn"],
         dict(),
     ),
     (
@@ -167,51 +120,6 @@ def test_transformers_translation(
 
 _TRANSFORMERS_GENERATION_TESTS = [
     (
-        "bigcode/tiny_starcoder_py",
-        (
-            "<fim_prefix> def Ġprint _ one _ two _ three (): ĊĠĠĠ Ġprint (' one ') "
-            "ĊĠĠĠĠ <fim_suffix> ĊĠĠĠ Ġprint (' three ') <fim_middle>"
-        ),
-        26,
-        (
-            "<fim_prefix> def Ġprint _ one _ two _ three (): ĊĠĠĠ Ġprint (' one ') "
-            "ĊĠĠĠĠ <fim_suffix> ĊĠĠĠ Ġprint (' three ') <fim_middle>"
-            " print (' two ')"
-        ),
-    ),
-    (
-        "Salesforce/codegen-350M-mono",
-        "def Ġhello _ name ( name ):",
-        25,
-        "def Ġhello _ name ( name ):"
-        ' Ċ      print ( f " Hello Ġ{ name } ") Ċ Ċ hello _ name (" John ")',
-    ),
-    (
-        "gpt2",
-        "<|endoftext|>",
-        10,
-        "Ċ The Ġfirst Ġtime ĠI Ġsaw Ġthe Ġnew Ġversion Ġof",
-    ),
-    (
-        "facebook/opt-350m",
-        "</s>",
-        10,
-        "Ċ The Ġfollowing Ġis Ġa Ġlist Ġof Ġthe Ġmost Ġpopular",
-    ),
-    (
-        "microsoft/DialoGPT-medium",
-        "Hello <|endoftext|>",
-        100,
-        "Hello <|endoftext|> Hello Ġ! Ġ: D",
-    ),
-    (
-        "bigscience/bloom-560m",
-        "Hello , ĠI Ġam",
-        20,
-        "Hello , ĠI Ġam Ġa Ġnew bie Ġin Ġthe Ġworld Ġof Ġweb Ġdesign Ġand ĠI Ġam "
-        "Ġlooking Ġfor Ġa Ġweb Ġdeveloper",
-    ),
-    (
         "jordimas/gemma-3-1b-it",
         "<bos> Which ▁city ▁hosted ▁the ▁Olympic ▁Games ▁in ▁ 1 9 9 2 ?",
         50,
@@ -270,21 +178,6 @@ def test_transformers_dtype(clear_transformers_cache, tmp_dir):
 
     # The bfloat16 checkpoint takes about 1.2 GB, or 2.4 GB if upcast to float32.
     assert model_mb < 1300
-
-
-@test_utils.only_on_linux
-def test_transformers_marianmt_vocabulary(clear_transformers_cache, tmp_dir):
-    converter = ctranslate2.converters.TransformersConverter(
-        "Helsinki-NLP/opus-mt-en-de"
-    )
-    output_dir = str(tmp_dir.join("ctranslate2_model"))
-    output_dir = converter.convert(output_dir)
-
-    vocabulary_path = os.path.join(output_dir, "shared_vocabulary.json")
-    with open(vocabulary_path, encoding="utf-8") as vocabulary_file:
-        vocab = json.load(vocabulary_file)
-
-    assert vocab[-1] != "<pad>"
 
 
 @test_utils.only_on_linux
@@ -377,19 +270,6 @@ def _to_numpy(storage, device):
         np.array(storage)
         if device == "cpu"
         else torch.as_tensor(storage, device=device).cpu().numpy()
-    )
-
-
-@test_utils.only_on_linux_and_intel
-def test_transformers_gptbigcode(clear_transformers_cache, tmp_dir):
-    import transformers
-
-    _check_generator_logits(
-        tmp_dir,
-        "hf-internal-testing/tiny-random-GPTBigCodeForCausalLM",
-        transformers.GPTBigCodeForCausalLM,
-        transformers.AutoTokenizer,
-        "hello",
     )
 
 

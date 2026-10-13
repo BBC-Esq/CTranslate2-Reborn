@@ -609,7 +609,7 @@ class TransformerDecoderModelConfig(model_spec.LanguageModelConfig):
 
 
 class TransformerDecoderModelSpec(model_spec.LanguageModelSpec):
-    """Describes a Transformer decoder model (e.g. GPT-2)."""
+    """Describes a Transformer decoder model (e.g. Llama)."""
 
     def __init__(self, decoder: TransformerDecoderSpec):
         """Initializes a Transformer decoder model specification.

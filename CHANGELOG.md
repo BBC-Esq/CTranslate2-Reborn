@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Breaking changes
+
+* Remove the converters for frameworks other than Hugging Face Transformers, so `ct2-transformers-converter` is the only converter. Removed console scripts and Python classes:
+  * `ct2-fairseq-converter` (`FairseqConverter`)
+  * `ct2-marian-converter` (`MarianConverter`)
+  * `ct2-opennmt-py-converter` (`OpenNMTPyConverter`)
+  * `ct2-opennmt-tf-converter` (`OpenNMTTFConverter`)
+  * `ct2-opus-mt-converter` (`OpusMTConverter`)
+  * `ct2-openai-gpt2-converter` (`OpenAIGPT2Converter`)
+  * The Eole converter module `ctranslate2.converters.eole_ct2`
+* Remove these architectures from `ct2-transformers-converter`: Gemma 1, Phi-1, Phi-1.5 and Phi-2 (including the MixFormer format), Falcon (including the RW format), MPT, BLOOM, GPT-J, GPT-NeoX, OPT, CodeGen, GPTBigCode, GPT-2, Pegasus, Marian (including the OPUS-MT models on the Hugging Face Hub), M2M100 (including NLLB) and CamemBERT
+* Remove the `pyyaml` dependency, which only the removed converters used
+
+Models converted with earlier versions, including those of the removed architectures, still load and run.
+
 ## [v4.8.3](https://github.com/OpenNMT/CTranslate2/releases/tag/v4.8.3) (2026-10-13)
 
 ### New features

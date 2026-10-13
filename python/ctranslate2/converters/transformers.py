@@ -2935,8 +2935,8 @@ class Qwen3EmbeddingLoader(Qwen3Loader):
         if num_heads_kv == num_heads:
             num_heads_kv = None
 
-        rotary_scaling_type, rotary_scaling_factor, rope_theta = (
-            self.get_rotary_params(model.config, 1_000_000)
+        rotary_scaling_type, rotary_scaling_factor, rope_theta = self.get_rotary_params(
+            model.config, 1_000_000
         )
 
         spec = transformer_spec.TransformerDecoderModelSpec.from_config(

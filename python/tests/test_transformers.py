@@ -289,17 +289,21 @@ def test_transformers_marianmt_vocabulary(clear_transformers_cache, tmp_dir):
 
 @test_utils.only_on_linux
 @pytest.mark.parametrize("beam_size", [1, 2])
-def test_transformers_marianmt_disable_unk(
+def test_transformers_translator_disable_unk(
     clear_transformers_cache, tmp_dir, beam_size
 ):
-    converter = ctranslate2.converters.TransformersConverter(
-        "Helsinki-NLP/opus-mt-en-roa"
-    )
+    converter = ctranslate2.converters.TransformersConverter("google-t5/t5-small")
     output_dir = str(tmp_dir.join("ctranslate2_model"))
     output_dir = converter.convert(output_dir)
 
-    tokens = ">>ind<< ▁The ▁Prime <unk> ▁is ▁coming ▁back ▁tomorrow . </s>".split()
+    # T5 has no token for "~", "{" or "}" and copies the resulting <unk> to its output.
+    tokens = (
+        "▁translate ▁English ▁to ▁German : ▁Press ▁the ▁ <unk> ▁key ▁and ▁the ▁ <unk> "
+        "Ent er <unk> ▁key . </s>"
+    ).split()
     translator = ctranslate2.Translator(output_dir)
+    output = translator.translate_batch([tokens], beam_size=beam_size)
+    assert "<unk>" in output[0].hypotheses[0]
     output = translator.translate_batch([tokens], beam_size=beam_size, disable_unk=True)
     assert "<unk>" not in output[0].hypotheses[0]
 

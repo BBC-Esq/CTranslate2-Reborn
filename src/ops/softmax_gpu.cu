@@ -239,6 +239,92 @@ namespace at {
 namespace ctranslate2 {
   namespace ops {
 
+    // Rows of up to 1024 values, such as attention scores, are handled by one warp each: every
+    // thread keeps its values in registers, so a row is read once instead of three times and the
+    // reductions are warp shuffles.
+    constexpr int softmax_warp_size = C10_WARP_SIZE;
+    constexpr int softmax_warps_per_block = 4;
+    constexpr dim_t softmax_warp_max_cols = 1024;
+    constexpr float softmax_max_float = std::numeric_limits<float>::max();
+
+    template <typename T, int max_cols, bool log_softmax>
+    __global__ void softmax_warp_kernel(T* output,
+                                        const T* input,
+                                        const cuda::index_t rows,
+                                        const cuda::index_t cols,
+                                        const int32_t* lengths) {
+      constexpr int values_per_thread = max_cols / softmax_warp_size;
+
+      const cuda::index_t row = blockIdx.x * softmax_warps_per_block + threadIdx.x / softmax_warp_size;
+      if (row >= rows)
+        return;
+
+      const cuda::index_t lane = threadIdx.x % softmax_warp_size;
+      const cuda::index_t size = lengths ? lengths[row] : cols;
+      input += row * cols;
+      output += row * cols;
+
+      float values[values_per_thread];
+      float max_value = -softmax_max_float;
+#pragma unroll
+      for (int k = 0; k < values_per_thread; ++k) {
+        const cuda::index_t i = lane + k * softmax_warp_size;
+        values[k] = i < size ? float(input[i]) : -softmax_max_float;
+        max_value = ::max(max_value, values[k]);
+      }
+      max_value = cuda::warp_all_reduce(max_value, cuda::maximum<float>());
+
+      float sum = 0;
+#pragma unroll
+      for (int k = 0; k < values_per_thread; ++k) {
+        const cuda::index_t i = lane + k * softmax_warp_size;
+        if (i < size) {
+          const float exp_value = std::exp(values[k] - max_value);
+          if (!log_softmax)
+            values[k] = exp_value;
+          sum += exp_value;
+        }
+      }
+      sum = cuda::warp_all_reduce(sum, cuda::plus<float>());
+
+      const float log_sum = log_softmax ? std::log(sum) : 0.f;
+#pragma unroll
+      for (int k = 0; k < values_per_thread; ++k) {
+        const cuda::index_t i = lane + k * softmax_warp_size;
+        if (i < cols) {
+          if (i >= size)
+            output[i] = T(0.f);
+          else if (log_softmax)
+            output[i] = T(values[k] - max_value - log_sum);
+          else
+            output[i] = T(values[k] / sum);
+        }
+      }
+    }
+
+    template <typename T, bool log_softmax>
+    static void softmax_warp_kernel_impl(cudaStream_t stream,
+                                         const T* x,
+                                         const dim_t rows,
+                                         const dim_t cols,
+                                         const int32_t* lengths,
+                                         T* y) {
+      const dim3 grid(ceil_divide(rows, dim_t(softmax_warps_per_block)));
+      const dim3 block(softmax_warps_per_block * softmax_warp_size);
+      if (cols <= 32)
+        softmax_warp_kernel<T, 32, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+      else if (cols <= 64)
+        softmax_warp_kernel<T, 64, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+      else if (cols <= 128)
+        softmax_warp_kernel<T, 128, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+      else if (cols <= 256)
+        softmax_warp_kernel<T, 256, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+      else if (cols <= 512)
+        softmax_warp_kernel<T, 512, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+      else
+        softmax_warp_kernel<T, 1024, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+    }
+
     template <typename T, template <typename, typename, typename> class Epilogue>
     static void softmax_kernel_impl(cudaStream_t stream,
                                     const T* x,
@@ -263,7 +349,14 @@ namespace ctranslate2 {
                                const dim_t cols,
                                const int32_t* lengths,
                                T* y) {
-      if (log_softmax)
+      if (cols <= softmax_warp_max_cols) {
+        if (log_softmax)
+          softmax_warp_kernel_impl<cuda::device_type<T>, true>(
+            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+        else
+          softmax_warp_kernel_impl<cuda::device_type<T>, false>(
+            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+      } else if (log_softmax)
         softmax_kernel_impl<cuda::device_type<T>, at::native::LogSoftMaxForwardEpilogue>(
           stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
       else

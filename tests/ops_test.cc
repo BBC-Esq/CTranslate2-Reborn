@@ -904,6 +904,38 @@ TEST_P(OpDeviceFPTest, MaskedSoftMax) {
   expect_storage_eq(y.to_float32(), expected, error);
 }
 
+TEST_P(OpDeviceFPTest, MaskedSoftMaxLongRows) {
+  // On CUDA, rows of up to 1024 values and longer rows take different paths. The results are
+  // compared with the CPU implementation, with and without lengths, in place and not.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const float error = GetParam().error;
+  for (const dim_t depth : {300, 1500}) {
+    const dim_t rows = 6;
+    std::vector<float> x_values(rows * depth);
+    for (dim_t i = 0; i < rows * depth; ++i)
+      x_values[i] = std::sin(0.23f * i);
+    const StorageView x({rows, depth}, x_values);
+    const StorageView lengths({rows}, std::vector<int32_t>{
+        int32_t(depth), 1, 0, 37, int32_t(depth - 1), 257});
+
+    for (const bool log : {false, true}) {
+      const ops::SoftMax softmax_op(log);
+      StorageView expected;
+      softmax_op(x, expected);
+      StorageView y(dtype, device);
+      softmax_op(x.to(device).to(dtype), y);
+      expect_storage_eq(y.to_float32(), expected.to(device), error);
+    }
+
+    StorageView expected;
+    ops::SoftMax()(x, lengths, expected);
+    StorageView y = x.to(device).to(dtype);
+    ops::SoftMax()(y, lengths.to(device), y);
+    expect_storage_eq(y.to_float32(), expected.to(device), error);
+  }
+}
+
 TEST_P(OpDeviceFPTest, MaskedSoftMaxTriangular) {
   const Device device = GetParam().device;
   const DataType dtype = GetParam().dtype;

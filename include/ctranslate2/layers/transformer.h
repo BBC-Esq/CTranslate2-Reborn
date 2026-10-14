@@ -32,6 +32,8 @@ namespace ctranslate2 {
       const std::unique_ptr<const LayerNorm> _layer_norm;
       const bool _pre_norm;
       const ops::ActivationType _activation_type;
+      // Whether the gated activation is applied by one op after linear_0, instead of by linear_0.
+      const bool _gated_activation;
       const Dense _ff1;
       const std::unique_ptr<const Dense> _ff1_noact;
       const Dense _ff2;

@@ -5,6 +5,15 @@
 namespace ctranslate2 {
   namespace layers {
 
+    // The gated activation op applies the activation and the product in one pass. Quantized
+    // layers keep applying the activation themselves.
+    static bool use_gated_activation_op(const models::Model& model, const std::string& scope) {
+      if (!model.layer_exists(scope + "/linear_0_noact"))
+        return false;
+      const StorageView* weight = model.get_variable_if_exists(scope + "/linear_0/weight");
+      return weight && is_float_type(weight->dtype());
+    }
+
     FeedForwardNetwork::FeedForwardNetwork(const models::Model& model,
                                            const std::string& scope,
                                            const bool pre_norm,
@@ -12,7 +21,8 @@ namespace ctranslate2 {
       : _layer_norm(build_optional_layer<LayerNorm>(model, scope + "/layer_norm"))
       , _pre_norm(pre_norm)
       , _activation_type(activation_type)
-      , _ff1(model, scope + "/linear_0", &_activation_type)
+      , _gated_activation(use_gated_activation_op(model, scope))
+      , _ff1(model, scope + "/linear_0", _gated_activation ? nullptr : &_activation_type)
       , _ff1_noact(build_optional_layer<Dense>(model, scope + "/linear_0_noact"))
       , _ff2(model, scope + "/linear_1", nullptr, true)
       , _tensor_parallel(model.tensor_parallel()) {
@@ -33,7 +43,11 @@ namespace ctranslate2 {
       if (_ff1_noact) {
         StorageView linear(dtype, device);
         (*_ff1_noact)(*x, linear);
-        ops::Mul()(linear, inner, inner);
+        if (_gated_activation) {
+          const ops::GatedActivation gated_activation_op(_activation_type);
+          gated_activation_op(inner, linear, inner);
+        } else
+          ops::Mul()(linear, inner, inner);
       }
 
       _ff2(inner, output, _layer_norm ? &input : nullptr);

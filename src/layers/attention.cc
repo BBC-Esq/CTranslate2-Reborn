@@ -213,8 +213,25 @@ namespace ctranslate2 {
                                        maximum_relative_position).to(queries.device()));
       }
 
+      // With grouped-query attention, the keys and values can have fewer heads than the queries.
+      // Query head h uses key and value head h / group_size, so the queries of a group are
+      // processed as one longer sequence: [batch, num_heads_kv, group_size * time, depth].
+      const bool grouped_heads = queries.rank() == 4 && keys.dim(1) != queries.dim(1);
+      if (grouped_heads && (relative_position_keys
+                            || relative_asymmetric_position_keys
+                            || relative_position_values))
+        throw std::invalid_argument("Relative positions require as many key heads as query heads");
+      StorageView grouped_queries(queries.dtype(), queries.device());
+      if (grouped_heads) {
+        const dim_t group_size = queries.dim(1) / keys.dim(1);
+        grouped_queries.view(const_cast<void*>(queries.buffer()),
+                             {queries.dim(0), keys.dim(1), group_size * queries.dim(2), queries.dim(3)});
+      }
+
       const ops::MatMul keys_matmul(/*trans_a=*/false, /*trans_b=*/true, queries_scale);
-      keys_matmul(queries, keys, output);
+      keys_matmul(grouped_heads ? grouped_queries : queries, keys, output);
+      if (grouped_heads)
+        output.reshape({queries.dim(0), queries.dim(1), queries.dim(2), keys.dim(2)});
       if (relative_position_keys)
         add_relative_representations(queries,
                                      *relative_positions,
@@ -274,7 +291,14 @@ namespace ctranslate2 {
       }
 
       const ops::MatMul values_matmul;
-      values_matmul(attn, values, output);
+      if (grouped_heads) {
+        attn.reshape({queries.dim(0), keys.dim(1), -1, attn.dim(-1)});
+        values_matmul(attn, values, output);
+        attn.reshape({queries.dim(0), queries.dim(1), queries.dim(2), attn.dim(-1)});
+        output.reshape({queries.dim(0), queries.dim(1), queries.dim(2), values.dim(3)});
+      } else {
+        values_matmul(attn, values, output);
+      }
       if (relative_position_values)
         add_relative_representations(attn,
                                      *relative_positions,
@@ -506,8 +530,12 @@ namespace ctranslate2 {
             apply_qk_norm(queries_proj, keys_proj);
             apply_v_norm(values_proj);
 
-            replicate_heads(keys_proj, _num_heads / _num_heads_kv);
-            replicate_heads(values_proj, _num_heads / _num_heads_kv);
+            // dot_product_attention takes keys and values with fewer heads than the queries,
+            // except with relative positions.
+            if (_relative_position_keys || _relative_asymmetric_position_keys || _relative_position_values) {
+              replicate_heads(keys_proj, _num_heads / _num_heads_kv);
+              replicate_heads(values_proj, _num_heads / _num_heads_kv);
+            }
           }
 
         } else {

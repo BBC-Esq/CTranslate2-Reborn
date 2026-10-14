@@ -166,6 +166,8 @@ set(SOURCES
   src/ops/flash_attention.cc
   src/ops/flash_attention_cpu.cc
   src/ops/gather.cc
+  src/ops/gated_activation.cc
+  src/ops/gated_activation_cpu.cc
   src/ops/gather_cpu.cc
   src/ops/gelu.cc
   src/ops/gemm.cc
@@ -243,6 +245,7 @@ set(CUDA_SOURCES
   src/ops/dequantize_gpu.cu
   src/ops/flash_attention_gpu.cu
   src/ops/gather_gpu.cu
+  src/ops/gated_activation_gpu.cu
   src/ops/gumbel_max_gpu.cu
   src/ops/layer_norm_gpu.cu
   src/ops/mean_gpu.cu
@@ -789,6 +792,7 @@ elseif(WITH_HIP)
     src/ops/conv1d_cpu.cc
     src/ops/dequantize_cpu.cc
     src/ops/gather_cpu.cc
+    src/ops/gated_activation_cpu.cc
     src/ops/gumbel_max_cpu.cc
     src/ops/layer_norm_cpu.cc
     src/ops/mean_cpu.cc

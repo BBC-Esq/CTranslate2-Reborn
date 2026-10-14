@@ -1093,6 +1093,40 @@ TEST_P(OpDeviceFPTest, Rotary) {
   }
 }
 
+TEST_P(OpDeviceFPTest, GatedActivation) {
+  // Exactly the result of the activation followed by Mul, for every activation type. On CUDA, 4 x 64
+  // values are processed 16 bytes at a time, 3 x 37 values one at a time.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  for (const Shape& shape : {Shape{4, 64}, Shape{3, 37}}) {
+    std::vector<float> gate_values(compute_size(shape));
+    std::vector<float> up_values(gate_values.size());
+    for (size_t i = 0; i < gate_values.size(); ++i) {
+      gate_values[i] = 3 * std::sin(0.31f * i);
+      up_values[i] = 2 * std::cos(0.17f * i);
+    }
+    const StorageView gate = StorageView(shape, gate_values, device).to(dtype);
+    const StorageView up = StorageView(shape, up_values, device).to(dtype);
+
+    for (const auto activation_type : {ops::ActivationType::ReLU,
+                                       ops::ActivationType::GELUTanh,
+                                       ops::ActivationType::Swish,
+                                       ops::ActivationType::GELU,
+                                       ops::ActivationType::GELUSigmoid,
+                                       ops::ActivationType::Tanh,
+                                       ops::ActivationType::Sigmoid}) {
+      StorageView expected(dtype, device);
+      ops::get_activation_op(activation_type)(gate, expected);
+      ops::Mul()(up, expected, expected);
+
+      StorageView output(dtype, device);
+      const ops::GatedActivation gated_activation_op(activation_type);
+      gated_activation_op(gate, up, output);
+      expect_storage_eq(output.to_float32(), expected.to_float32());
+    }
+  }
+}
+
 TEST_P(OpDeviceFPTest, RMSNormRotary) {
   // Exactly the result of RMSNorm followed by Rotary, for head sizes that the CUDA kernel handles
   // (128 and 64) or not (6), several time steps or one, full or partial rotation, with or without

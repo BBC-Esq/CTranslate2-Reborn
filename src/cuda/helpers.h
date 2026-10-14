@@ -60,6 +60,27 @@ namespace ctranslate2 {
     template <typename T>
     using device_type = typename DeviceType<T>::type;
 
+    // The type to compute in for values of type T: T itself, or float when the GPU has no
+    // arithmetic for T.
+    template <typename T>
+    struct MathType {
+      using type = T;
+    };
+
+#if !CUDA_CAN_USE_HALF
+    template<>
+    struct MathType<__half> {
+      using type = float;
+    };
+#endif
+
+#if !CUDA_CAN_USE_BF16_MATH
+    template<>
+    struct MathType<__nv_bfloat16> {
+      using type = float;
+    };
+#endif
+
     template <typename T>
     inline const device_type<T>* device_cast(const T* x) {
       return reinterpret_cast<const device_type<T>*>(x);

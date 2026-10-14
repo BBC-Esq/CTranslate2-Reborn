@@ -939,7 +939,8 @@ TEST_P(OpDeviceFPTest, MaskedSoftMax) {
 
 TEST_P(OpDeviceFPTest, MaskedSoftMaxLongRows) {
   // On CUDA, rows of up to 1024 values, up to 8192 values, and longer rows take different paths.
-  // The results are compared with the CPU implementation, with and without lengths, in place and not.
+  // The results are compared with the CPU implementation, with and without lengths, in place and not,
+  // and with a sliding window.
   const Device device = GetParam().device;
   const DataType dtype = GetParam().dtype;
   const float error = GetParam().error;
@@ -968,7 +969,36 @@ TEST_P(OpDeviceFPTest, MaskedSoftMaxLongRows) {
     StorageView y = x.to(device).to(dtype);
     ops::SoftMax()(y, lengths.to(device), y);
     expect_storage_eq(y.to_float32(), expected.to(device), error);
+
+    const ops::SoftMax window_op(/*log=*/false, /*window=*/200);
+    window_op(x, lengths, expected);
+    y = x.to(device).to(dtype);
+    window_op(y, lengths.to(device), y);
+    expect_storage_eq(y.to_float32(), expected.to(device), error);
   }
+}
+
+TEST_P(OpDeviceFPTest, MaskedSoftMaxSlidingWindow) {
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const float error = GetParam().error;
+  // Each row keeps the last 3 of its first lengths[i] positions.
+  StorageView x({3, 6}, std::vector<float>{
+      -0.2, 3.0, 1.2, -1.1, 0.0, 2.5,
+      4.6, 3.3, 0.2, -1.6, 1.0, 0.7,
+      0.5, -0.5, 1.5, 2.0, -2.0, 0.1}, device);
+  StorageView lengths({3}, std::vector<int32_t>{5, 3, 2}, device);
+  StorageView expected({3, 6}, std::vector<float>{
+             0,        0, 0.713545, 0.071539, 0.214916, 0,
+      0.778326, 0.212119, 0.009556,        0,        0, 0,
+      0.731059, 0.268941,        0,        0,        0, 0}, device);
+  const ops::SoftMax softmax_op(/*log=*/false, /*window=*/3);
+  StorageView y(dtype, device);
+  softmax_op(x.to(dtype), lengths, y);
+  expect_storage_eq(y.to_float32(), expected, error);
+  y = x.to(dtype);
+  softmax_op(y, lengths, y);
+  expect_storage_eq(y.to_float32(), expected, error);
 }
 
 TEST_P(OpDeviceFPTest, MaskedSoftMaxTriangular) {

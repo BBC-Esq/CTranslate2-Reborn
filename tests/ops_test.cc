@@ -905,12 +905,12 @@ TEST_P(OpDeviceFPTest, MaskedSoftMax) {
 }
 
 TEST_P(OpDeviceFPTest, MaskedSoftMaxLongRows) {
-  // On CUDA, rows of up to 1024 values and longer rows take different paths. The results are
-  // compared with the CPU implementation, with and without lengths, in place and not.
+  // On CUDA, rows of up to 1024 values, up to 8192 values, and longer rows take different paths.
+  // The results are compared with the CPU implementation, with and without lengths, in place and not.
   const Device device = GetParam().device;
   const DataType dtype = GetParam().dtype;
   const float error = GetParam().error;
-  for (const dim_t depth : {300, 1500}) {
+  for (const dim_t depth : {300, 1500, 9000}) {
     const dim_t rows = 6;
     std::vector<float> x_values(rows * depth);
     for (dim_t i = 0; i < rows * depth; ++i)
@@ -920,6 +920,8 @@ TEST_P(OpDeviceFPTest, MaskedSoftMaxLongRows) {
         int32_t(depth), 1, 0, 37, int32_t(depth - 1), 257});
 
     for (const bool log : {false, true}) {
+      if (log && depth > 1500)
+        continue;  // The log-probabilities of 9000 values are too large for the bfloat16 tolerance.
       const ops::SoftMax softmax_op(log);
       StorageView expected;
       softmax_op(x, expected);

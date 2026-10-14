@@ -384,6 +384,29 @@ namespace ctranslate2 {
       apply_k_norm(keys_proj);
     }
 
+    // Applies the query and key norms and then the rotary embeddings in one op, when the norms are
+    // RMSNorms of each head. Returns false, without doing anything, otherwise.
+    bool MultiHeadAttention::apply_qk_norm_and_rotary(StorageView& queries_proj,
+                                                      StorageView& keys_proj,
+                                                      dim_t offset) const {
+      if (!_q_norm || !_k_norm || !_rotary_embeddings
+          || !_q_norm->is_rms_norm() || !_k_norm->is_rms_norm()
+          || _q_norm->gamma().size() != queries_proj.dim(-1)
+          || _k_norm->gamma().size() != keys_proj.dim(-1)
+          || _q_norm->epsilon() != _k_norm->epsilon())
+        return false;
+
+      StorageView sin(queries_proj.dtype(), queries_proj.device());
+      StorageView cos(queries_proj.dtype(), queries_proj.device());
+      _rotary_embeddings->get_sin_cos(offset, queries_proj.dim(2), queries_proj.dim(3), sin, cos);
+      const ops::RMSNormRotary norm_rotary_op(_q_norm->epsilon(),
+                                              _q_norm->use_residual(),
+                                              _k_norm->use_residual(),
+                                              _rotary_embeddings->get_interleave());
+      norm_rotary_op(_q_norm->gamma(), _k_norm->gamma(), sin, cos, queries_proj, keys_proj);
+      return true;
+    }
+
     void MultiHeadAttention::apply_v_norm(StorageView& values_proj) const {
       if (_v_norm) {
         StorageView values_normed(values_proj.dtype(), values_proj.device());
@@ -502,6 +525,8 @@ namespace ctranslate2 {
                                 queries_padder, values_padder, beam_size);
       } else {
 
+        bool rotary_applied = false;
+
         if (_num_heads_kv < _num_heads) {// MQA or GQA: queries stay in merged time/head format
           if (queries_padder)
             queries_padder->add_padding(fused_proj);
@@ -524,7 +549,9 @@ namespace ctranslate2 {
           } else {
             ops::SplitQKVHeads(_num_heads, _num_heads_kv)(fused_proj, queries_proj, keys_proj, values_proj);
 
-            apply_qk_norm(queries_proj, keys_proj);
+            rotary_applied = apply_qk_norm_and_rotary(queries_proj, keys_proj, offset);
+            if (!rotary_applied)
+              apply_qk_norm(queries_proj, keys_proj);
             apply_v_norm(values_proj);
 
             // dot_product_attention takes keys and values with fewer heads than the queries,
@@ -540,11 +567,13 @@ namespace ctranslate2 {
             queries_padder->add_padding(fused_proj);
           ops::SplitQKVHeads(_num_heads, _num_heads)(fused_proj, queries_proj, keys_proj, values_proj);
 
-          apply_qk_norm(queries_proj, keys_proj);
+          rotary_applied = apply_qk_norm_and_rotary(queries_proj, keys_proj, offset);
+          if (!rotary_applied)
+            apply_qk_norm(queries_proj, keys_proj);
           apply_v_norm(values_proj);
         }
 
-        if (_rotary_embeddings) {
+        if (_rotary_embeddings && !rotary_applied) {
           if (_merge_time_and_head_dims) {
             queries_proj.reshape({queries_proj.dim(0), -1, _d_model});
             split_heads(queries_proj, _num_heads);

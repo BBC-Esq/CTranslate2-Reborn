@@ -1093,6 +1093,59 @@ TEST_P(OpDeviceFPTest, Rotary) {
   }
 }
 
+TEST_P(OpDeviceFPTest, RMSNormRotary) {
+  // Exactly the result of RMSNorm followed by Rotary, for head sizes that the CUDA kernel handles
+  // (128 and 64) or not (6), several time steps or one, full or partial rotation, with or without
+  // interleaving, and with or without the Gemma residual in the norm.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const dim_t batch_size = 2;
+  const dim_t num_heads = 4;
+  const dim_t num_heads_kv = 2;
+  const auto make = [&](Shape shape, float seed, float scale) {
+    std::vector<float> values(compute_size(shape));
+    for (size_t i = 0; i < values.size(); ++i)
+      values[i] = scale * std::sin(seed + 0.37f * i);
+    return StorageView(std::move(shape), values, device).to(dtype);
+  };
+
+  for (const dim_t depth : {dim_t(128), dim_t(64), dim_t(6)}) {
+    for (const dim_t time : {dim_t(5), dim_t(1)}) {
+      for (const dim_t ndims : {depth, depth / 2}) {
+        if (ndims % 2 != 0)
+          continue;
+        const StorageView queries = make({batch_size, num_heads, time, depth}, 1, 2);
+        const StorageView keys = make({batch_size, num_heads_kv, time, depth}, 2, 2);
+        const StorageView queries_gamma = make({depth}, 3, 0.5);
+        const StorageView keys_gamma = make({depth}, 4, 0.5);
+        const StorageView sin = make({time, ndims}, 5, 1);
+        const StorageView cos = make({time, ndims}, 6, 1);
+
+        for (const bool interleave : {false, true}) {
+          for (const bool use_residual : {false, true}) {
+            const ops::RMSNorm norm_op(1e-6, use_residual);
+            const ops::Rotary rotary_op(ndims, interleave);
+            StorageView normed(dtype, device);
+            StorageView expected_queries(dtype, device);
+            StorageView expected_keys(dtype, device);
+            norm_op(queries_gamma, queries, normed);
+            rotary_op(normed, sin, cos, expected_queries);
+            norm_op(keys_gamma, keys, normed);
+            rotary_op(normed, sin, cos, expected_keys);
+
+            StorageView got_queries(queries);
+            StorageView got_keys(keys);
+            ops::RMSNormRotary(1e-6, use_residual, use_residual, interleave)(
+              queries_gamma, keys_gamma, sin, cos, got_queries, got_keys);
+            expect_storage_eq(got_queries.to_float32(), expected_queries.to_float32());
+            expect_storage_eq(got_keys.to_float32(), expected_keys.to_float32());
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST_P(OpDeviceFPTest, SplitQKVHeads) {
   // The same result as a Split followed by a transpose of each output, for grouped-query and
   // multi-head attention, several time steps or one, and head sizes that allow 16-byte copies or not.

@@ -15,6 +15,10 @@
 
 Models converted with earlier versions, including those of the removed architectures, still load and run.
 
+### New features
+
+* Support Qwen 3 embedding models (Qwen3-Embedding, Yuan-embedding-2.0-en, harrier-oss-v1-0.6b): convert them with `--model_type Qwen3Embedding` and run them with `ctranslate2.Encoder`, whose `pooler_output` is each text's last-token embedding
+
 ## [v4.8.3](https://github.com/OpenNMT/CTranslate2/releases/tag/v4.8.3) (2026-10-13)
 
 ### New features

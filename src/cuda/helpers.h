@@ -455,6 +455,20 @@ namespace ctranslate2 {
       return smem[0];
     }
 
+    // Reduces a value over the threads of a warp and returns the result to all of them.
+    template <typename Reduction, typename T>
+    __device__ __forceinline__ T warp_all_reduce(T val, const Reduction& r) {
+      #pragma unroll
+      for (int offset = C10_WARP_SIZE / 2; offset > 0; offset /= 2) {
+#ifdef CT2_USE_HIP
+        val = r(val, __shfl_xor(val, offset, C10_WARP_SIZE));
+#else
+        val = r(val, __shfl_xor_sync(0xffffffff, val, offset));
+#endif
+      }
+      return val;
+    }
+
     template <typename Reduction,
               typename T,
               typename AccumT = T,

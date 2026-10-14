@@ -7,6 +7,7 @@
 #include "conv1d.h"
 #include "cos.h"
 #include "gather.h"
+#include "gated_activation.h"
 #include "gelu.h"
 #include "gemm.h"
 #include "gumbel_max.h"

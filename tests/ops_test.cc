@@ -1057,6 +1057,42 @@ TEST_P(OpDeviceFPTest, RMSNormShortRows) {
   }
 }
 
+TEST_P(OpDeviceFPTest, Rotary) {
+  // On CUDA, rotating 36 of the 128 values takes a different path than rotating all or 64 of them.
+  // The results are compared with the CPU implementation, with and without interleaving.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const float error = GetParam().error;
+  const dim_t batch_size = 2;
+  const dim_t num_heads = 3;
+  const dim_t time = 5;
+  const dim_t depth = 128;
+  std::vector<float> x_values(batch_size * num_heads * time * depth);
+  for (size_t i = 0; i < x_values.size(); ++i)
+    x_values[i] = std::sin(0.11f * i);
+  const StorageView x({batch_size, num_heads, time, depth}, x_values);
+
+  for (const dim_t ndims : {depth, dim_t(64), dim_t(36)}) {
+    std::vector<float> sin_values(time * ndims);
+    std::vector<float> cos_values(time * ndims);
+    for (size_t i = 0; i < sin_values.size(); ++i) {
+      sin_values[i] = std::sin(0.07f * i);
+      cos_values[i] = std::cos(0.05f * i);
+    }
+    const StorageView sin({time, ndims}, sin_values);
+    const StorageView cos({time, ndims}, cos_values);
+
+    for (const bool interleave : {false, true}) {
+      const ops::Rotary rotary_op(ndims == depth ? 0 : ndims, interleave);
+      StorageView expected;
+      rotary_op(x, sin, cos, expected);
+      StorageView y(dtype, device);
+      rotary_op(x.to(device).to(dtype), sin.to(device).to(dtype), cos.to(device).to(dtype), y);
+      expect_storage_eq(y.to_float32(), expected.to(device), error);
+    }
+  }
+}
+
 TEST_P(OpDeviceTest, QuantizeINT8) {
   Device device = GetParam();
   StorageView a({2, 4}, std::vector<float>{-10, -3, 5, 2, 5, 21, -3, 0}, device);

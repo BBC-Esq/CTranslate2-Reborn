@@ -172,6 +172,19 @@ namespace ctranslate2 {
                                      const StorageView& bias,
                                      const StorageView& residual,
                                      StorageView& output) const;
+
+      bool is_rms_norm() const {
+        return !_beta;
+      }
+      const StorageView& gamma() const {
+        return _gamma;
+      }
+      bool use_residual() const {
+        return _use_residual;
+      }
+      float epsilon() const {
+        return _epsilon;
+      }
     private:
       const StorageView* _beta;
       const StorageView& _gamma;

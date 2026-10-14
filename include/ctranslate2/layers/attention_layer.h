@@ -94,6 +94,14 @@ namespace ctranslate2 {
 
       void apply(StorageView& x, const dim_t offset = 0, bool fa2 = false);
 
+      // The sin and cos values of positions offset to offset + max_time - 1, [max_time, rotary_dim],
+      // for an op that applies the rotation itself. depth is the size of the rotated heads.
+      void get_sin_cos(const dim_t offset,
+                       const dim_t max_time,
+                       const dim_t depth,
+                       StorageView& sin,
+                       StorageView& cos);
+
       StorageView& get_cos_half() {
         return *_cos_half;
       }

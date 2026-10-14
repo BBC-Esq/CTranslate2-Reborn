@@ -2,6 +2,8 @@
 #include "ctranslate2/ops/split.h"
 #include "ctranslate2/ops/slide.h"
 
+#include <type_traits>
+
 #include <thrust/gather.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -62,6 +64,61 @@ namespace ctranslate2 {
       }
     };
 
+    // Up to this many inputs are concatenated along an inner axis by a single kernel, which finds
+    // the input of each output value. The cached keys and values of decoders grow this way.
+    constexpr int concat_max_inputs = 8;
+
+    template <typename U>
+    struct ConcatInputs {
+      const U* data[concat_max_inputs];
+      cuda::index_t dim[concat_max_inputs];
+      cuda::index_t offset[concat_max_inputs];
+      int count;
+    };
+
+    template <typename U>
+    __global__ void concat_kernel(const ConcatInputs<U> inputs,
+                                  U* output,
+                                  const cuda::index_t output_dim,
+                                  const cuda::index_t inner_size,
+                                  const cuda::index_t size) {
+      for (cuda::index_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
+        const cuda::index_t row = i / inner_size;
+        const cuda::index_t inner = i - row * inner_size;
+        const cuda::index_t outer = row / output_dim;
+        const cuda::index_t index = row - outer * output_dim;
+        int input = 0;
+        while (input + 1 < inputs.count && index >= inputs.offset[input + 1])
+          ++input;
+        output[i] = inputs.data[input][((outer * inputs.dim[input]) + index - inputs.offset[input]) * inner_size
+                                       + inner];
+      }
+    }
+
+    // Copies values of type T as units of type U, with inner_size units after the axis.
+    template <typename U, typename T>
+    static void concat_in_one_kernel(const std::vector<const StorageView*>& inputs,
+                                     const dim_t axis,
+                                     T* output,
+                                     const dim_t output_size,
+                                     const dim_t output_dim,
+                                     const dim_t inner_size) {
+      ConcatInputs<U> params;
+      params.count = inputs.size();
+      dim_t offset = 0;
+      for (size_t i = 0; i < inputs.size(); ++i) {
+        params.data[i] = reinterpret_cast<const U*>(inputs[i]->data<T>());
+        params.dim[i] = inputs[i]->dim(axis);
+        params.offset[i] = offset;
+        offset += params.dim[i];
+      }
+      const dim_t size = output_size * sizeof (T) / sizeof (U);
+      const dim_t threads = 256;
+      const dim_t blocks = std::min(ceil_divide(size, threads), cuda::max_blocks);
+      concat_kernel<<<blocks, threads, 0, cuda::get_cuda_stream()>>>(
+        params, reinterpret_cast<U*>(output), output_dim, inner_size, size);
+    }
+
     template <Device D, typename T>
     void Concat::compute(const std::vector<const StorageView*>& inputs,
                          StorageView& output) const {
@@ -71,6 +128,26 @@ namespace ctranslate2 {
       const dim_t inner_bytes = inner_size * sizeof (T);
       T* output_data = output.data<T>();
       dim_t offset = 0;
+
+      if (axis > 0 && inputs.size() <= size_t(concat_max_inputs)) {
+        if (output.empty())
+          return;
+        const auto aligned = [](const void* ptr) {
+          return reinterpret_cast<uintptr_t>(ptr) % sizeof (uint4) == 0;
+        };
+        bool vectorize = inner_bytes % sizeof (uint4) == 0 && aligned(output_data);
+        for (const StorageView* input : inputs)
+          vectorize = vectorize && aligned(input->data<T>());
+        using Raw = std::conditional_t<sizeof (T) == 1, uint8_t,
+                    std::conditional_t<sizeof (T) == 2, uint16_t,
+                    std::conditional_t<sizeof (T) == 4, uint32_t, uint64_t>>>;
+        if (vectorize)
+          concat_in_one_kernel<uint4>(inputs, axis, output_data, output.size(), output_dim,
+                                      inner_bytes / sizeof (uint4));
+        else
+          concat_in_one_kernel<Raw>(inputs, axis, output_data, output.size(), output_dim, inner_size);
+        return;
+      }
 
       for (const StorageView* input : inputs) {
         const T* input_data = input->data<T>();

@@ -1093,6 +1093,40 @@ TEST_P(OpDeviceFPTest, Rotary) {
   }
 }
 
+TEST_P(OpDeviceFPTest, SplitQKVHeads) {
+  // The same result as a Split followed by a transpose of each output, for grouped-query and
+  // multi-head attention, several time steps or one, and head sizes that allow 16-byte copies or not.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const dim_t batch_size = 2;
+  const dim_t num_heads = 4;
+  for (const dim_t num_heads_kv : {dim_t(2), num_heads}) {
+    for (const dim_t time : {dim_t(3), dim_t(1)}) {
+      for (const dim_t head_dim : {dim_t(8), dim_t(6)}) {
+        const dim_t depth = (num_heads + 2 * num_heads_kv) * head_dim;
+        std::vector<float> values(batch_size * time * depth);
+        for (size_t i = 0; i < values.size(); ++i)
+          values[i] = std::sin(0.1f * i);
+        const StorageView x = StorageView({batch_size, time, depth}, values, device).to(dtype);
+
+        StorageView queries(dtype, device), keys(dtype, device), values_out(dtype, device);
+        ops::SplitQKVHeads(num_heads, num_heads_kv)(x, queries, keys, values_out);
+
+        StorageView q(dtype, device), k(dtype, device), v(dtype, device);
+        ops::Split(2, {num_heads * head_dim, num_heads_kv * head_dim, num_heads_kv * head_dim})(x, q, k, v);
+        const std::vector<std::pair<StorageView*, StorageView*>> pairs = {
+          {&q, &queries}, {&k, &keys}, {&v, &values_out}};
+        for (const auto& [expected, got] : pairs) {
+          expected->reshape({batch_size, time, -1, head_dim});
+          StorageView transposed(dtype, device);
+          ops::Transpose({0, 2, 1, 3})(*expected, transposed);
+          expect_storage_eq(got->to_float32(), transposed.to_float32());
+        }
+      }
+    }
+  }
+}
+
 TEST_P(OpDeviceTest, QuantizeINT8) {
   Device device = GetParam();
   StorageView a({2, 4}, std::vector<float>{-10, -3, 5, 2, 5, 21, -3, 0}, device);

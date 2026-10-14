@@ -506,10 +506,9 @@ namespace ctranslate2 {
           if (queries_padder)
             queries_padder->add_padding(fused_proj);
 
-          const ops::Split split_op(2, {_num_heads * _d_head, _num_heads_kv * _d_head, _num_heads_kv * _d_head});
-          split_op(fused_proj, queries_proj, keys_proj, values_proj);
-
           if (_merge_time_and_head_dims) {
+            const ops::Split split_op(2, {_num_heads * _d_head, _num_heads_kv * _d_head, _num_heads_kv * _d_head});
+            split_op(fused_proj, queries_proj, keys_proj, values_proj);
             queries_proj.reshape({queries_proj.dim(0), -1, _d_head});
             // k_norm/v_norm operate per-head (gamma size = _d_head), so temporarily
             // split keys/values into heads, apply norms, then restore merged layout.
@@ -523,9 +522,7 @@ namespace ctranslate2 {
               combine_heads(values_proj, _num_heads_kv);
             }
           } else {
-            split_heads(queries_proj, _num_heads);
-            split_heads(keys_proj, _num_heads_kv);
-            split_heads(values_proj, _num_heads_kv);
+            ops::SplitQKVHeads(_num_heads, _num_heads_kv)(fused_proj, queries_proj, keys_proj, values_proj);
 
             apply_qk_norm(queries_proj, keys_proj);
             apply_v_norm(values_proj);
@@ -539,8 +536,9 @@ namespace ctranslate2 {
           }
 
         } else {
-          split_heads(fused_proj, 3 * _num_heads, queries_padder);
-          ops::Split(1)(fused_proj, queries_proj, keys_proj, values_proj);
+          if (queries_padder)
+            queries_padder->add_padding(fused_proj);
+          ops::SplitQKVHeads(_num_heads, _num_heads)(fused_proj, queries_proj, keys_proj, values_proj);
 
           apply_qk_norm(queries_proj, keys_proj);
           apply_v_norm(values_proj);

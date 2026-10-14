@@ -999,6 +999,32 @@ TEST_P(OpDeviceFPTest, RMSNorm) {
   expect_storage_eq(y.to_float32(), expected, error);
 }
 
+TEST_P(OpDeviceFPTest, RMSNormShortRows) {
+  // Rows of 128 values, like the per-head query and key norms of Qwen3, take a different path on
+  // CUDA. 21 rows is not a multiple of the rows that one CUDA block handles.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const float error = GetParam().error;
+  const dim_t rows = 21;
+  const dim_t depth = 128;
+  std::vector<float> x_values(rows * depth);
+  std::vector<float> gamma_values(depth);
+  for (dim_t i = 0; i < rows * depth; ++i)
+    x_values[i] = 2 * std::sin(0.37f * i);
+  for (dim_t i = 0; i < depth; ++i)
+    gamma_values[i] = 0.25f + 0.005f * i;
+  const StorageView x({rows, depth}, x_values);
+  const StorageView gamma({depth}, gamma_values);
+
+  for (const bool use_residual : {false, true}) {
+    StorageView expected;
+    ops::RMSNorm(1e-6, use_residual)(gamma, x, expected);
+    StorageView y(dtype, device);
+    ops::RMSNorm(1e-6, use_residual)(gamma.to(device).to(dtype), x.to(device).to(dtype), y);
+    expect_storage_eq(y.to_float32(), expected.to(device), error);
+  }
+}
+
 TEST_P(OpDeviceTest, QuantizeINT8) {
   Device device = GetParam();
   StorageView a({2, 4}, std::vector<float>{-10, -3, 5, 2, 5, 21, -3, 0}, device);

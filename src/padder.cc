@@ -6,7 +6,8 @@ namespace ctranslate2 {
 
   Padder::Padder(const StorageView& lengths,
                  const dim_t max_time,
-                 const dim_t pad_batch_to_multiple)
+                 const dim_t pad_batch_to_multiple,
+                 const float min_padding)
     : _batch_size(lengths.size()) {
     const std::vector<int32_t> lengths_vec = lengths.to_vector<int32_t>();
     if (max_time < 0)
@@ -22,6 +23,14 @@ namespace ctranslate2 {
       return;
 
     const dim_t max_size = _max_time * _batch_size;
+
+    if (min_padding > 0) {
+      dim_t num_tokens = 0;
+      for (const int32_t length : lengths_vec)
+        num_tokens += std::min(dim_t(length), _max_time);
+      if (max_size - num_tokens < min_padding * max_size)
+        return;
+    }
     std::vector<int32_t> padded_to_flat;
     std::vector<int32_t> flat_to_padded;
     padded_to_flat.reserve(max_size);

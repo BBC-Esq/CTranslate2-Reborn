@@ -341,6 +341,23 @@ def test_transformers_qwen3_embedding(tmp_dir, device, architecture):
     np.testing.assert_allclose(pooler_output, expected, rtol=1e-4, atol=1e-5)
 
 
+@test_utils.only_on_linux
+def test_transformers_qwen3_embedding_rejects_extra_layers(tmp_dir):
+    import transformers
+
+    # Jasper-Token-Compression-600M is a Qwen3 checkpoint that adds layers around the model.
+    model_dir = str(tmp_dir.join("model"))
+    transformers.Qwen3Config(architectures=["JasperV2Encoder"]).save_pretrained(
+        model_dir
+    )
+
+    converter = ctranslate2.converters.TransformersConverter(
+        model_dir, model_type="Qwen3Embedding"
+    )
+    with pytest.raises(ValueError, match="JasperV2Encoder"):
+        converter.convert(str(tmp_dir.join("ctranslate2_model")))
+
+
 def _check_generator_logits(
     tmp_dir, model_name, hf_model_class, hf_tokenizer_class, input_text
 ):

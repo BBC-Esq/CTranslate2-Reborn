@@ -2201,6 +2201,23 @@ class Qwen3EmbeddingLoader(Qwen3Loader):
     def architecture_name(self):
         return "Qwen3Model"
 
+    def get_model_class(self, config, default_class):
+        # Models that add layers to Qwen3 (a projection, token compression, adapters)
+        # would load without them and silently produce different embeddings.
+        architectures = getattr(config, "architectures", None) or []
+        unsupported = [
+            name
+            for name in architectures
+            if name not in ("Qwen3Model", "Qwen3ForCausalLM")
+        ]
+        if unsupported:
+            raise ValueError(
+                "Qwen3Embedding converts plain Qwen3 models (Qwen3Model or "
+                "Qwen3ForCausalLM), but this model's architecture is %s. Converting "
+                "it would drop the layers it adds to Qwen3." % ", ".join(unsupported)
+            )
+        return default_class
+
     def get_model_spec(self, model):
         num_layers = model.config.num_hidden_layers
         num_heads = model.config.num_attention_heads

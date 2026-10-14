@@ -255,6 +255,39 @@ TEST_P(OpDeviceTest, ConcatEmpty) {
   expect_storage_eq(x, a);
 }
 
+TEST_P(OpDeviceFPTest, ConcatInnerAxisManyInputs) {
+  // Inputs shaped like cached keys being extended, with an empty one, concatenated along the time
+  // axis: on CUDA one kernel copies 16 bytes at a time (16 values after the axis) or single values
+  // (3 values after the axis). The result must equal the CPU concatenation exactly.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  for (const dim_t inner : {dim_t(16), dim_t(3)}) {
+    std::vector<StorageView> cpu_inputs;
+    for (const dim_t time : {dim_t(5), dim_t(0), dim_t(1), dim_t(7)}) {
+      std::vector<float> values(2 * 3 * time * inner);
+      for (size_t i = 0; i < values.size(); ++i)
+        values[i] = float(i % 97) + 0.25f * time;
+      cpu_inputs.emplace_back(Shape{2, 3, time, inner}, values);
+    }
+    std::vector<StorageView> device_inputs;
+    std::vector<const StorageView*> cpu_pointers;
+    std::vector<const StorageView*> device_pointers;
+    for (const StorageView& x : cpu_inputs) {
+      cpu_pointers.push_back(&x);
+      device_inputs.emplace_back(x.to(device).to(dtype));
+    }
+    for (const StorageView& x : device_inputs)
+      device_pointers.push_back(&x);
+
+    StorageView expected;
+    ops::Concat(2)(cpu_pointers, expected);
+    StorageView output(dtype, device);
+    ops::Concat(2)(device_pointers, output);
+    ASSERT_EQ(output.shape(), (Shape{2, 3, 13, inner}));
+    expect_storage_eq(output.to_float32(), expected.to(device).to(dtype).to_float32());
+  }
+}
+
 TEST_P(OpDeviceTest, ConcatSplitBatch) {
   Device device = GetParam();
   StorageView a({2, 2}, std::vector<float>{1, 2, 3, 4}, device);

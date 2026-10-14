@@ -190,6 +190,8 @@ set(SOURCES
   src/ops/rms_norm_cpu.cc
   src/ops/rotary.cc
   src/ops/rotary_cpu.cc
+  src/ops/split_qkv_heads.cc
+  src/ops/split_qkv_heads_cpu.cc
   src/ops/sin.cc
   src/ops/softmax.cc
   src/ops/softmax_cpu.cc
@@ -247,6 +249,7 @@ set(CUDA_SOURCES
   src/ops/multinomial_gpu.cu
   src/ops/rms_norm_gpu.cu
   src/ops/rotary_gpu.cu
+  src/ops/split_qkv_heads_gpu.cu
   src/ops/softmax_gpu.cu
   src/ops/tile_gpu.cu
   src/ops/topk_gpu.cu
@@ -792,6 +795,7 @@ elseif(WITH_HIP)
     src/ops/quantize_cpu.cc
     src/ops/rms_norm_cpu.cc
     src/ops/rotary_cpu.cc
+    src/ops/split_qkv_heads_cpu.cc
     src/ops/softmax_cpu.cc
     src/ops/tile_cpu.cc
     src/ops/topk_cpu.cc

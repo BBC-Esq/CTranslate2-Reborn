@@ -470,7 +470,8 @@ namespace ctranslate2 {
 
       if (lengths) {
         if (Padder::allow_padding_removal(output.device(), _compute_type)) {
-          padder = std::make_unique<Padder>(*lengths, max_time);
+          padder = std::make_unique<Padder>(*lengths, max_time, 1,
+                                            Padder::min_padding_to_remove(output.device()));
           padder->remove_padding(input);
         }
 
@@ -699,7 +700,8 @@ namespace ctranslate2 {
 
       if (lengths) {
         if (allow_padding_removal) {
-          input_padder = std::make_unique<Padder>(*lengths, max_time);
+          input_padder = std::make_unique<Padder>(*lengths, max_time, 1,
+                                                  Padder::min_padding_to_remove(_device));
           input_padder->remove_padding(layer_in);
         }
 
@@ -733,7 +735,8 @@ namespace ctranslate2 {
           memory = &state.at("memory");
 
           if (memory_lengths && allow_padding_removal) {
-            memory_padder = std::make_unique<Padder>(*memory_lengths, memory->dim(1));
+            memory_padder = std::make_unique<Padder>(*memory_lengths, memory->dim(1), 1,
+                                                     Padder::min_padding_to_remove(_device));
             memory_padder->remove_padding(*memory);
           }
         }

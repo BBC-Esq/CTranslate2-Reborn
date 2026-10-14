@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include "ctranslate2/utils.h"
 #include "cuda/utils.h"
@@ -60,12 +61,15 @@ namespace ctranslate2 {
 
       void* allocate(size_t size, int device_index) override {
         void* ptr = nullptr;
-        CUDA_CHECK(_allocator->DeviceAllocate(device_index, &ptr, size, cuda::get_cuda_stream()));
+        CUDA_CHECK(_allocator->DeviceAllocate(cub_device_index(device_index),
+                                              &ptr,
+                                              size,
+                                              cuda::get_cuda_stream()));
         return ptr;
       }
 
       void free(void* ptr, int device_index) override {
-        _allocator->DeviceFree(device_index, ptr);
+        _allocator->DeviceFree(cub_device_index(device_index), ptr);
       }
 
       void clear_cache() override {
@@ -74,25 +78,28 @@ namespace ctranslate2 {
 
     private:
       std::unique_ptr<cub::CachingDeviceAllocator> _allocator;
+
+      // Given a device index, CUB calls cudaSetDevice even when that device is already current
+      // (see CudaAsyncAllocator). Given -1, it uses the current device.
+      static int cub_device_index(int device_index) {
+        return device_index == get_device_index(Device::CUDA) ? -1 : device_index;
+      }
     };
 
+    // ScopedDeviceSetter only calls cudaSetDevice when the device changes. On Windows, the call
+    // makes the driver submit its queued work right away, even when the device is already current,
+    // and the allocator runs around almost every operation, so each kernel would become its own GPU
+    // submission with the GPU idle in between.
     class CudaAsyncAllocator : public Allocator {
     public:
       void* allocate(size_t size, int device_index) override {
 #if CT2_USE_ASYNC_ALLOC
-        int prev_device_index = -1;
-        if (device_index >= 0) {
-          CUDA_CHECK(cudaGetDevice(&prev_device_index));
-          CUDA_CHECK(cudaSetDevice(device_index));
-        }
+        std::optional<ScopedDeviceSetter> device_setter;
+        if (device_index >= 0)
+          device_setter.emplace(Device::CUDA, device_index);
 
         void* ptr = nullptr;
         CUDA_CHECK(cudaMallocAsync(&ptr, size, get_cuda_stream()));
-
-        if (prev_device_index >= 0) {
-          CUDA_CHECK(cudaSetDevice(prev_device_index));
-        }
-
         return ptr;
 #else
         (void)size;
@@ -103,17 +110,11 @@ namespace ctranslate2 {
 
       void free(void* ptr, int device_index) override {
 #if CT2_USE_ASYNC_ALLOC
-        int prev_device_index = -1;
-        if (device_index >= 0) {
-          CUDA_CHECK(cudaGetDevice(&prev_device_index));
-          CUDA_CHECK(cudaSetDevice(device_index));
-        }
+        std::optional<ScopedDeviceSetter> device_setter;
+        if (device_index >= 0)
+          device_setter.emplace(Device::CUDA, device_index);
 
         CUDA_CHECK(cudaFreeAsync(ptr, get_cuda_stream()));
-
-        if (prev_device_index >= 0) {
-          CUDA_CHECK(cudaSetDevice(prev_device_index));
-        }
 #else
         (void)ptr;
         (void)device_index;

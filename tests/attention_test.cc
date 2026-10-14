@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "test_utils.h"
 #include "ctranslate2/layers/attention.h"
 
@@ -168,6 +170,85 @@ TEST(MergedAttentionTest, ForwardMergedProducesOutput) {
   EXPECT_EQ(output.shape(), (Shape{B, Q_LEN, D_MODEL}));
   EXPECT_EQ(mem_k.shape(), (Shape{B, NUM_HEADS, MEM_LEN, D_HEAD}));
   EXPECT_EQ(self_k.shape(), (Shape{B, NUM_HEADS, Q_LEN, D_HEAD}));
+}
+
+// GQA self-attention keeps one key/value head per group instead of replicating it for every query
+// head, and gives the same output as multi-head attention with the key/value heads repeated.
+TEST(GroupedQueryAttentionTest, SelfAttentionMatchesRepeatedHeads) {
+  constexpr dim_t NUM_HEADS = 4, NUM_KV = 2, D_HEAD = 16;
+  constexpr dim_t D_MODEL = NUM_HEADS * D_HEAD;
+  constexpr dim_t GROUP_SIZE = NUM_HEADS / NUM_KV;
+  constexpr dim_t BATCH = 2, TIME = 5;
+
+  const auto make_weights = [](dim_t size, float seed) {
+    std::vector<float> weights(size);
+    for (dim_t i = 0; i < size; ++i)
+      weights[i] = 0.05f * std::sin(seed + 0.37f * i);
+    return weights;
+  };
+  const std::vector<float> wq = make_weights(NUM_HEADS * D_HEAD * D_MODEL, 1);
+  const std::vector<float> wk = make_weights(NUM_KV * D_HEAD * D_MODEL, 2);
+  const std::vector<float> wv = make_weights(NUM_KV * D_HEAD * D_MODEL, 3);
+  const std::vector<float> wo = make_weights(D_MODEL * NUM_HEADS * D_HEAD, 4);
+
+  // Query head h uses key/value head h / GROUP_SIZE.
+  const auto repeat_heads = [&](const std::vector<float>& weights) {
+    std::vector<float> repeated;
+    for (dim_t h = 0; h < NUM_HEADS; ++h) {
+      const auto head = weights.begin() + (h / GROUP_SIZE) * D_HEAD * D_MODEL;
+      repeated.insert(repeated.end(), head, head + D_HEAD * D_MODEL);
+    }
+    return repeated;
+  };
+  const auto fuse = [&](const std::vector<float>& k, const std::vector<float>& v) {
+    std::vector<float> qkv = wq;
+    qkv.insert(qkv.end(), k.begin(), k.end());
+    qkv.insert(qkv.end(), v.begin(), v.end());
+    return qkv;
+  };
+
+  class SelfAttentionModel : public models::Model {
+  public:
+    SelfAttentionModel(dim_t num_heads_kv, const std::vector<float>& qkv, const std::vector<float>& o) {
+      register_variable("attn/linear_0/weight",
+                        StorageView({dim_t(qkv.size()) / D_MODEL, D_MODEL}, qkv));
+      register_variable("attn/linear_1/weight", StorageView({D_MODEL, NUM_HEADS * D_HEAD}, o));
+      register_variable("attn/num_heads_kv", StorageView(static_cast<int32_t>(num_heads_kv)));
+      set_compute_type(ComputeType::FLOAT32, Device::CPU, 0, false);
+    }
+  protected:
+    std::unique_ptr<Model> clone() const override { return nullptr; }
+  };
+
+  const SelfAttentionModel gqa_model(NUM_KV, fuse(wk, wv), wo);
+  const SelfAttentionModel mha_model(NUM_HEADS, fuse(repeat_heads(wk), repeat_heads(wv)), wo);
+  const layers::MultiHeadAttention gqa(gqa_model, "attn", NUM_HEADS, /*self_attention=*/true);
+  const layers::MultiHeadAttention mha(mha_model, "attn", NUM_HEADS, /*self_attention=*/true);
+
+  std::vector<float> x(BATCH * (TIME + 1) * D_MODEL);
+  for (size_t i = 0; i < x.size(); ++i)
+    x[i] = std::cos(0.13f * i);
+  const StorageView inputs({BATCH, TIME, D_MODEL}, std::vector<float>(x.begin(), x.begin() + BATCH * TIME * D_MODEL));
+  const StorageView step({BATCH, 1, D_MODEL}, std::vector<float>(x.begin() + BATCH * TIME * D_MODEL, x.end()));
+  const StorageView lengths({BATCH}, std::vector<int32_t>{TIME, TIME - 2});
+  const StorageView mask = layers::MultiHeadAttention::prepare_length_mask(
+    lengths, NUM_HEADS, TIME, /*mask_future=*/true);
+
+  StorageView gqa_output, gqa_keys, gqa_values;
+  StorageView mha_output, mha_keys, mha_values;
+  gqa(inputs, inputs, &mask, gqa_output, &gqa_keys, &gqa_values);
+  mha(inputs, inputs, &mask, mha_output, &mha_keys, &mha_values);
+  EXPECT_EQ(gqa_keys.shape(), (Shape{BATCH, NUM_KV, TIME, D_HEAD}));
+  EXPECT_EQ(gqa_values.shape(), (Shape{BATCH, NUM_KV, TIME, D_HEAD}));
+  expect_storage_eq(gqa_output, mha_output, 1e-5);
+
+  // A decoding step that attends to the cached keys and values.
+  gqa(step, step, nullptr, gqa_output, &gqa_keys, &gqa_values,
+      nullptr, nullptr, nullptr, true, nullptr, /*offset=*/TIME);
+  mha(step, step, nullptr, mha_output, &mha_keys, &mha_values,
+      nullptr, nullptr, nullptr, true, nullptr, /*offset=*/TIME);
+  EXPECT_EQ(gqa_keys.shape(), (Shape{BATCH, NUM_KV, TIME + 1, D_HEAD}));
+  expect_storage_eq(gqa_output, mha_output, 1e-5);
 }
 
 // MHA: Each head has independent K/V

@@ -1925,6 +1925,9 @@ class Gemma3Loader(ModelLoader):
             num_heads_kv = None
 
         head_dim = text_config.head_dim
+        # Attention scores are scaled by query_pre_attn_scalar**-0.5, which is not
+        # head_dim**-0.5 in 27b (168 and 128).
+        queries_scale = getattr(text_config, "query_pre_attn_scalar", head_dim) ** -0.5
 
         activation_config = getattr(
             text_config, "hidden_activation", "gelu_pytorch_tanh"
@@ -2020,6 +2023,7 @@ class Gemma3Loader(ModelLoader):
         # Override per-layer settings for global vs local attention
         for i, layer_type in enumerate(layer_types):
             layer = spec.decoder.layer[i]
+            layer.self_attention.queries_scale = np.dtype("float32").type(queries_scale)
             if layer_type == "full_attention":
                 layer.self_attention.rotary_base = np.dtype("float32").type(rope_theta)
                 layer.self_attention.sliding_window = np.dtype("int32").type(0)

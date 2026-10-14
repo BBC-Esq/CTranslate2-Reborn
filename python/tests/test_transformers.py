@@ -423,8 +423,10 @@ def _check_generator_logits(
         (None, 16),
         # 4B and 12B scale the RoPE of the global layers by 8.
         ({"rope_type": "linear", "factor": 8.0}, 16),
+        # 27B also scales the attention scores by 168**-0.5 for a head size of 128.
+        ({"rope_type": "linear", "factor": 8.0}, 21),
     ],
-    ids=["1b", "4b"],
+    ids=["1b", "4b", "27b"],
 )
 def test_transformers_gemma3_logits(
     tmp_dir, device, rope_scaling, query_pre_attn_scalar

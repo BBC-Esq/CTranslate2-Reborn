@@ -36,6 +36,7 @@
 #include "tanh.h"
 #include "median_filter.h"
 #include "rotary.h"
+#include "split_qkv_heads.h"
 #include "alibi_add.h"
 #include "slide.h"
 #include "nccl_ops.h"

@@ -33,6 +33,7 @@
 #include "min_max.h"
 #include "log.h"
 #include "rms_norm.h"
+#include "rms_norm_rotary.h"
 #include "tanh.h"
 #include "median_filter.h"
 #include "rotary.h"

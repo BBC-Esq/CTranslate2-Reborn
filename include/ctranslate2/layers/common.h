@@ -161,6 +161,19 @@ namespace ctranslate2 {
       DataType output_type() const override;
       dim_t output_size() const override;
       void operator()(const StorageView& input, StorageView& output) const;
+
+      bool is_rms_norm() const {
+        return !_beta;
+      }
+      const StorageView& gamma() const {
+        return _gamma;
+      }
+      bool use_residual() const {
+        return _use_residual;
+      }
+      float epsilon() const {
+        return _epsilon;
+      }
     private:
       const StorageView* _beta;
       const StorageView& _gamma;

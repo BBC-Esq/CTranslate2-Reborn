@@ -90,6 +90,9 @@ namespace ctranslate2 {
                                  dim_t beam_size = 1);
 
       void apply_k_norm(StorageView& keys_proj) const;
+      bool apply_qk_norm_and_rotary(StorageView& queries_proj,
+                                    StorageView& keys_proj,
+                                    dim_t offset) const;
       void apply_v_norm(StorageView& values_proj) const;
 
       void apply_qk_norm(StorageView& queries_proj,

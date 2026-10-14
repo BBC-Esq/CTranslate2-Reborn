@@ -233,6 +233,22 @@ TEST(LayerTest, PadderIgnore) {
   expect_storage_eq(x, original);
 }
 
+TEST(LayerTest, PadderKeepsSmallPadding) {
+  // 1 padded position out of 12 (8.3%): kept with a 10% threshold, removed with a 5% one.
+  const StorageView lengths({3}, std::vector<int32_t>{4, 4, 3});
+  StorageView x({3, 4}, std::vector<int32_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+  const StorageView original(x);
+
+  const Padder keep(lengths, /*max_time=*/4, /*pad_batch_to_multiple=*/1, /*min_padding=*/0.1);
+  keep.remove_padding(x);
+  expect_storage_eq(x, original);
+
+  const Padder remove(lengths, /*max_time=*/4, /*pad_batch_to_multiple=*/1, /*min_padding=*/0.05);
+  remove.remove_padding(x);
+  ASSERT_EQ(x.rank(), 1);
+  EXPECT_EQ(x.size(), 11);
+}
+
 TEST(LayerTest, PositionEncoderNoSharedState) {
   // Test case for issue: http://forum.opennmt.net/t/ctranslate2-c-api-returns-strange-results-when-initializing-2-models/3208
   layers::SinusoidalPositionEncoder position_encoder_1(4);

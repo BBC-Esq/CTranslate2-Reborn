@@ -473,6 +473,74 @@ def test_transformers_gptbigcode(clear_transformers_cache, tmp_dir):
     )
 
 
+def _save_tiny_qwen3(model_class, model_dir):
+    import tokenizers
+    import torch
+    import transformers
+
+    tokens = ["<unk>", "<|endoftext|>", "<|im_end|>"] + ["tok%d" % i for i in range(61)]
+    vocabulary = {token: i for i, token in enumerate(tokens)}
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=tokenizers.Tokenizer(
+            tokenizers.models.WordLevel(vocabulary, unk_token="<unk>")
+        ),
+        unk_token="<unk>",
+        pad_token="<|endoftext|>",
+        eos_token="<|im_end|>",
+    )
+    # vocab_size is larger than the tokenizer, as in harrier-oss-v1-0.6b.
+    config = transformers.Qwen3Config(
+        vocab_size=80,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        tie_word_embeddings=True,
+    )
+    torch.manual_seed(0)
+    model = model_class(config).eval()
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+    return model
+
+
+@test_utils.only_on_linux
+@test_utils.on_available_devices
+# Qwen3-Embedding and harrier-oss-v1-0.6b are saved as Qwen3Model, Yuan-embedding-2.0-en as
+# Qwen3ForCausalLM (weight names prefixed with "model.").
+@pytest.mark.parametrize("architecture", ["Qwen3Model", "Qwen3ForCausalLM"])
+def test_transformers_qwen3_embedding(tmp_dir, device, architecture):
+    import torch
+    import transformers
+
+    model_dir = str(tmp_dir.join("model"))
+    model = _save_tiny_qwen3(getattr(transformers, architecture), model_dir)
+    base_model = model if architecture == "Qwen3Model" else model.model
+
+    converter = ctranslate2.converters.TransformersConverter(
+        model_dir, model_type="Qwen3Embedding"
+    )
+    output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))
+
+    # Different lengths, so the batch is padded.
+    batch = [[5, 9, 14, 23, 7, 1], [33, 41, 1], [18]]
+    with torch.no_grad():
+        expected = np.stack(
+            [
+                base_model(input_ids=torch.tensor([ids]))
+                .last_hidden_state[0, -1]
+                .numpy()
+                for ids in batch
+            ]
+        )
+
+    encoder = ctranslate2.Encoder(output_dir, device=device, compute_type="float32")
+    pooler_output = _to_numpy(encoder.forward_batch(batch).pooler_output, device)
+    np.testing.assert_allclose(pooler_output, expected, rtol=1e-4, atol=1e-5)
+
+
 def _check_generator_logits(
     tmp_dir, model_name, hf_model_class, hf_tokenizer_class, input_text
 ):

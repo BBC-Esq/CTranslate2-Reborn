@@ -5,25 +5,6 @@
 namespace ctranslate2 {
   namespace ops {
 
-    template <typename T>
-    struct ComputeType {
-      using type = T;
-    };
-
-#if !CUDA_CAN_USE_HALF
-    template<>
-    struct ComputeType<__half> {
-      using type = float;
-    };
-#endif
-
-#if !CUDA_CAN_USE_BF16_MATH
-    template<>
-    struct ComputeType<__nv_bfloat16> {
-      using type = float;
-    };
-#endif
-
     template <typename T, bool interleave>
     __global__ void rotary_kernel(const T* x,
                                   const T* sin,
@@ -43,7 +24,7 @@ namespace ctranslate2 {
       sin += time * ndims;
       cos += time * ndims;
 
-      using C = typename ComputeType<T>::type;
+      using C = typename cuda::MathType<T>::type;
 
       for (cuda::index_t i = threadIdx.x; i < depth; i += blockDim.x) {
         if (i >= ndims)
@@ -92,7 +73,7 @@ namespace ctranslate2 {
       const auto* cos_vectors = reinterpret_cast<const Vector*>(cos + time * ndims);
       auto* y_vectors = reinterpret_cast<Vector*>(y + row * depth);
 
-      using C = typename ComputeType<T>::type;
+      using C = typename cuda::MathType<T>::type;
 
       for (cuda::index_t v = threadIdx.x % rotary_warp_size; v < num_vectors; v += rotary_warp_size) {
         const Vector x_vector = x_vectors[v];

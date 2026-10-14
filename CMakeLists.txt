@@ -187,6 +187,7 @@ set(SOURCES
   src/ops/quantize_cpu.cc
   src/ops/relu.cc
   src/ops/rms_norm.cc
+  src/ops/rms_norm_rotary.cc
   src/ops/rms_norm_cpu.cc
   src/ops/rotary.cc
   src/ops/rotary_cpu.cc
@@ -248,6 +249,7 @@ set(CUDA_SOURCES
   src/ops/median_filter_gpu.cu
   src/ops/multinomial_gpu.cu
   src/ops/rms_norm_gpu.cu
+  src/ops/rms_norm_rotary_gpu.cu
   src/ops/rotary_gpu.cu
   src/ops/split_qkv_heads_gpu.cu
   src/ops/softmax_gpu.cu

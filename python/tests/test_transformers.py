@@ -414,6 +414,67 @@ def _check_generator_logits(
     np.testing.assert_array_almost_equal(logits, ref_logits)
 
 
+@test_utils.only_on_linux
+@test_utils.on_available_devices
+@pytest.mark.parametrize(
+    "rope_scaling,query_pre_attn_scalar",
+    [
+        # Gemma 3 1B: no RoPE scaling.
+        (None, 16),
+        # 4B and 12B scale the RoPE of the global layers by 8.
+        ({"rope_type": "linear", "factor": 8.0}, 16),
+    ],
+    ids=["1b", "4b"],
+)
+def test_transformers_gemma3_logits(
+    tmp_dir, device, rope_scaling, query_pre_attn_scalar
+):
+    import tokenizers
+    import torch
+    import transformers
+
+    tokens = ["<pad>", "<eos>", "<bos>", "<unk>"] + ["tok%d" % i for i in range(60)]
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=tokenizers.Tokenizer(
+            tokenizers.models.WordLevel(
+                {token: i for i, token in enumerate(tokens)}, unk_token="<unk>"
+            )
+        ),
+        bos_token="<bos>",
+        eos_token="<eos>",
+        unk_token="<unk>",
+        pad_token="<pad>",
+    )
+    config = transformers.Gemma3TextConfig(
+        vocab_size=len(tokens),
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        query_pre_attn_scalar=query_pre_attn_scalar,
+        rope_scaling=rope_scaling,
+        layer_types=["sliding_attention", "full_attention"],
+    )
+    torch.manual_seed(0)
+    model = transformers.Gemma3ForCausalLM(config).eval()
+    model_dir = str(tmp_dir.join("model"))
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+
+    converter = ctranslate2.converters.TransformersConverter(model_dir)
+    output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))
+    generator = ctranslate2.Generator(output_dir, device=device, compute_type="float32")
+
+    # A prompt within the sliding window (4096 by default).
+    ids = [2] + np.random.default_rng(0).integers(4, len(tokens), size=39).tolist()
+    logits = _to_numpy(generator.forward_batch([[tokens[i] for i in ids]]), device)
+    with torch.no_grad():
+        expected = model(torch.tensor([ids])).logits[0].numpy()
+    np.testing.assert_allclose(logits[0], expected, atol=1e-4)
+
+
 class TestGeneration:
     @classmethod
     def teardown_class(cls):

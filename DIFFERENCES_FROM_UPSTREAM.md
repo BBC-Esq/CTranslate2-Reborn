@@ -34,3 +34,4 @@ Prompts longer than the sliding window no longer give degenerate output that var
 
 - [Replace the README with a short description of the fork](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/874ef071f9cb15a26a4525445d46dbcb5d6d7fb8)
 - [Remove upstream's contributing guide, release checklist and security policy](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/fce80090a6a9dab0fdba0c3d57f7d44842186191)
+- [Remove upstream's documentation website, examples and tools](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/aadab0039fc1bcdec8a710ee4b5a47bcc3eed604)

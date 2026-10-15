@@ -528,6 +528,11 @@ jobs:
 
   publish-python-wheels-on-pypi:
     if: github.event_name == 'release'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ctranslate2-reborn
+    permissions:
+      id-token: write
     needs:
       - check-release-version
       - build-and-test-cpp-x86_64
@@ -551,8 +556,6 @@ jobs:
       - name: Publish Python wheels to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist
 
 

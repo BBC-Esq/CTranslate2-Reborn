@@ -49,3 +49,7 @@ Prompts longer than the sliding window no longer give degenerate output that var
 
 - [Detect packed weights in the Wav2Vec2 and Wav2Vec2-BERT encoders](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/42b43fe5dadbaf9e222e6726295801c5d1b5988b)
 - [Test Wav2Vec2 on the CPU with MKL-packed weights](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/614f9d589a51e6109b7ac35b25c49b3f3c8350a6)
+
+## Docker images removed (2026-10-15)
+
+- [Remove the Docker images and their CI job](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/05b3372112f76d3a3bad9e9f75412a690725550e)

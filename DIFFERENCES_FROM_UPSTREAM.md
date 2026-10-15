@@ -35,3 +35,12 @@ Prompts longer than the sliding window no longer give degenerate output that var
 - [Replace the README with a short description of the fork](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/874ef071f9cb15a26a4525445d46dbcb5d6d7fb8)
 - [Remove upstream's contributing guide, release checklist and security policy](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/fce80090a6a9dab0fdba0c3d57f7d44842186191)
 - [Remove upstream's documentation website, examples and tools](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/aadab0039fc1bcdec8a710ee4b5a47bcc3eed604)
+
+## Release pipeline (2026-10-15)
+
+- [Read only the X.Y.Z part of the version in CMake](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/10baf788d329892fa0f76ab174a67b0071ee0706)
+- [Ignore the egg-info folder under the package's new name](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/25973b9eff65a9ef8d905a2cca3d3c792d6d62e2)
+- [Run the release jobs when a GitHub release is published](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/f2d68ebb1ab32f5e72e9623415edf26a8d36064a)
+- [Publish to PyPI with Trusted Publishing](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/4ab5f2e3647a817c36b0126312d7313f56c5f38d)
+- [Push the Docker images to the fork's GitHub registry](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/eebbdede065d18c4ac65aa9c932c8fa006d16c4e)
+- [Set the version to 4.8.3.post1](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/bead902dc1e72ac771012ce797076ca2048d5307)

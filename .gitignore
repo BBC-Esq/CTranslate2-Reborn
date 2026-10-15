@@ -5,6 +5,6 @@
 CMake*.json
 .idea
 python/build/
-python/ctranslate2.egg-info/
+python/*.egg-info/
 python/dist/
 .cache

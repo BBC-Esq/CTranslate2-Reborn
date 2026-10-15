@@ -194,7 +194,8 @@ namespace ctranslate2 {
                                       bool with_cache = false,
                                       dim_t beam_size = 1,
                                       Alibi* alibi = nullptr,
-                                      StorageView* position_bias = nullptr) {
+                                      StorageView* position_bias = nullptr,
+                                      dim_t sliding_window = 0) {
       PROFILE("dot_product_attention");
 
       std::unique_ptr<const StorageView> relative_positions;
@@ -281,13 +282,14 @@ namespace ctranslate2 {
       if (alibi)
         alibi->apply(output, queries_scale);
 
+      const ops::SoftMax softmax_op(/*log=*/false, sliding_window);
       StorageView attn(values.dtype(), values.device());
       if (attention && !return_normalized_attention) {
-        ops::SoftMax()(output, values_lengths, attn);
+        softmax_op(output, values_lengths, attn);
         save_attention(*attention, std::move(output), beam_size);
       } else {
         attn = std::move(output);
-        ops::SoftMax()(attn, values_lengths, attn);
+        softmax_op(attn, values_lengths, attn);
       }
 
       const ops::MatMul values_matmul;
@@ -516,7 +518,21 @@ namespace ctranslate2 {
 
       dim_t beam_size = 1;
 
-      bool prefilling = (_sliding_window > 0 && values_lengths);
+      // With a sliding window, each query of the decoder attends to the keys of the last
+      // _sliding_window positions only, its own included. The cache keeps just those keys.
+      const bool sliding_window = _sliding_window > 0 && _self_attention && _is_decoder;
+      dim_t num_cached_keys = 0;
+      const auto trim_cache = [&]() {
+        const dim_t time = cached_keys->dim(_cache_time_dim);
+        if (time <= _sliding_window)
+          return;
+        const ops::Slide slide_op(_cache_time_dim, time - _sliding_window, _sliding_window);
+        StorageView tmp(dtype, device);
+        slide_op(*cached_keys, tmp);
+        *cached_keys = std::move(tmp);
+        slide_op(*cached_values, tmp);
+        *cached_values = std::move(tmp);
+      };
 
       if (!_self_attention) {
 
@@ -593,6 +609,7 @@ namespace ctranslate2 {
             *cached_keys = std::move(keys_proj);
             *cached_values = std::move(values_proj);
           } else {
+            num_cached_keys = cached_keys->dim(_cache_time_dim);
             const ops::Concat concat_op(_cache_time_dim);
             StorageView& tmp = fused_proj;  // Reuse storage.
             tmp = std::move(*cached_keys);
@@ -600,14 +617,9 @@ namespace ctranslate2 {
             tmp = std::move(*cached_values);
             concat_op({&tmp, &values_proj}, *cached_values);
 
-            if (!prefilling && _sliding_window > 0 && cached_keys->shape()[2] > _sliding_window) {
-              // only for generation
-              const ops::Slide slide_op(2, 1, cached_keys->shape()[2] - 1);
-              slide_op(*cached_keys, tmp);
-              *cached_keys = std::move(tmp);
-              slide_op(*cached_values, tmp);
-              *cached_values = std::move(tmp);
-            }
+            // A single step has no lengths: its window is the cache, so trim it first.
+            if (sliding_window && !values_lengths)
+              trim_cache();
           }
         }
       }
@@ -617,11 +629,20 @@ namespace ctranslate2 {
         values_proj.shallow_copy(*cached_values);
       }
 
+      // The lengths count the keys from the first position, but a sliding window cache kept
+      // only the last num_cached_keys of the offset positions before these queries.
+      const StorageView* lengths = values_lengths;
+      StorageView window_lengths(DataType::INT32, device);
+      if (sliding_window && values_lengths && offset > num_cached_keys) {
+        ops::Add()(*values_lengths, StorageView(int32_t(num_cached_keys - offset)), window_lengths);
+        lengths = &window_lengths;
+      }
+
       StorageView& context = fused_proj;  // Reuse storage.
       dot_product_attention(queries_proj,
                             keys_proj,
                             values_proj,
-                            values_lengths,
+                            lengths,
                             _relative_position_keys,
                             _relative_asymmetric_position_keys,
                             _relative_position_values,
@@ -637,17 +658,12 @@ namespace ctranslate2 {
                             bool(cached_keys),
                             beam_size,
                             _alibi,
-                            position_bias);
+                            position_bias,
+                            sliding_window ? _sliding_window : 0);
 
-      if (prefilling && cached_keys && cached_keys->shape()[2] > _sliding_window) {
-        // set only last sliding_window tokens to cached_keys and cached_values after computing attention
-        const ops::Slide slide_op(2, cached_keys->shape()[2] - _sliding_window, _sliding_window);
-        StorageView tmp(dtype, device);
-        slide_op(*cached_keys, tmp);
-        *cached_keys = std::move(tmp);
-        slide_op(*cached_values, tmp);
-        *cached_values = std::move(tmp);
-      }
+      // Several queries were masked to their windows: keep the keys of the last window.
+      if (sliding_window && values_lengths && cached_keys)
+        trim_cache();
 
       if (_merge_time_and_head_dims) {
         context.reshape(queries.shape());

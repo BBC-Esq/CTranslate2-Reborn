@@ -414,6 +414,69 @@ def _check_generator_logits(
     np.testing.assert_array_almost_equal(logits, ref_logits)
 
 
+@test_utils.only_on_linux
+@test_utils.on_available_devices
+@pytest.mark.parametrize(
+    "rope_scaling,query_pre_attn_scalar",
+    [
+        # Gemma 3 1B: no RoPE scaling.
+        (None, 16),
+        # 4B and 12B scale the RoPE of the global layers by 8.
+        ({"rope_type": "linear", "factor": 8.0}, 16),
+        # 27B also scales the attention scores by 168**-0.5 for a head size of 128.
+        ({"rope_type": "linear", "factor": 8.0}, 21),
+    ],
+    ids=["1b", "4b", "27b"],
+)
+def test_transformers_gemma3_logits(
+    tmp_dir, device, rope_scaling, query_pre_attn_scalar
+):
+    import tokenizers
+    import torch
+    import transformers
+
+    tokens = ["<pad>", "<eos>", "<bos>", "<unk>"] + ["tok%d" % i for i in range(60)]
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=tokenizers.Tokenizer(
+            tokenizers.models.WordLevel(
+                {token: i for i, token in enumerate(tokens)}, unk_token="<unk>"
+            )
+        ),
+        bos_token="<bos>",
+        eos_token="<eos>",
+        unk_token="<unk>",
+        pad_token="<pad>",
+    )
+    config = transformers.Gemma3TextConfig(
+        vocab_size=len(tokens),
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        query_pre_attn_scalar=query_pre_attn_scalar,
+        rope_scaling=rope_scaling,
+        layer_types=["sliding_attention", "full_attention"],
+    )
+    torch.manual_seed(0)
+    model = transformers.Gemma3ForCausalLM(config).eval()
+    model_dir = str(tmp_dir.join("model"))
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+
+    converter = ctranslate2.converters.TransformersConverter(model_dir)
+    output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))
+    generator = ctranslate2.Generator(output_dir, device=device, compute_type="float32")
+
+    # A prompt within the sliding window (4096 by default).
+    ids = [2] + np.random.default_rng(0).integers(4, len(tokens), size=39).tolist()
+    logits = _to_numpy(generator.forward_batch([[tokens[i] for i in ids]]), device)
+    with torch.no_grad():
+        expected = model(torch.tensor([ids])).logits[0].numpy()
+    np.testing.assert_allclose(logits[0], expected, atol=1e-4)
+
+
 class TestGeneration:
     @classmethod
     def teardown_class(cls):
@@ -1488,3 +1551,102 @@ def test_t5_loader_shares_the_first_relative_attention_bias():
         assert len(biases) == 3
         # T5 only defines the table in the first layer and shares it with the others.
         assert all(bias is biases[0] for bias in biases)
+
+
+def _save_tiny_gemma3(model_dir):
+    import tokenizers
+    import torch
+    import transformers
+
+    tokens = ["<pad>", "<eos>", "<bos>", "<unk>"] + ["tok%d" % i for i in range(60)]
+    vocabulary = {token: i for i, token in enumerate(tokens)}
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=tokenizers.Tokenizer(
+            tokenizers.models.WordLevel(vocabulary, unk_token="<unk>")
+        ),
+        bos_token="<bos>",
+        eos_token="<eos>",
+        unk_token="<unk>",
+        pad_token="<pad>",
+    )
+    # Like Gemma 3 1B (a window of 512, one key/value head, a global layer after
+    # five sliding ones), with a window of 8.
+    config = transformers.Gemma3TextConfig(
+        vocab_size=len(tokens),
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=1,
+        head_dim=16,
+        query_pre_attn_scalar=16,
+        sliding_window=8,
+        layer_types=["sliding_attention"] * 2 + ["full_attention", "sliding_attention"],
+    )
+    torch.manual_seed(0)
+    model = transformers.Gemma3ForCausalLM(config).eval()
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+    return model, tokens
+
+
+@test_utils.only_on_linux
+@test_utils.on_available_devices
+def test_transformers_gemma3_sliding_window(tmp_dir, device):
+    import torch
+
+    model_dir = str(tmp_dir.join("model"))
+    model, vocabulary = _save_tiny_gemma3(model_dir)
+    converter = ctranslate2.converters.TransformersConverter(model_dir)
+    output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))
+    generator = ctranslate2.Generator(output_dir, device=device, compute_type="float32")
+
+    def expected_logits(ids):
+        with torch.no_grad():
+            return model(torch.tensor([ids])).logits[0].numpy()
+
+    def to_tokens(ids):
+        return [vocabulary[i] for i in ids]
+
+    # Prompts span several windows, so sliding layers must ignore the first keys while the
+    # global layer sees them all.
+    rng = np.random.default_rng(0)
+    long_ids = [2] + rng.integers(4, len(vocabulary), size=37).tolist()
+    short_ids = [2] + rng.integers(4, len(vocabulary), size=20).tolist()
+
+    # Scoring a padded batch.
+    logits = _to_numpy(
+        generator.forward_batch([to_tokens(long_ids), to_tokens(short_ids)]), device
+    )
+    np.testing.assert_allclose(logits[0], expected_logits(long_ids), atol=1e-4)
+    np.testing.assert_allclose(
+        logits[1, : len(short_ids)], expected_logits(short_ids), atol=1e-4
+    )
+
+    # Generating: the prompt fills the cache in chunks of the window size.
+    kwargs = dict(
+        max_length=3,
+        sampling_topk=1,
+        end_token=[],
+        include_prompt_in_result=False,
+        return_logits_vocab=True,
+    )
+    result = generator.generate_batch([to_tokens(long_ids)], **kwargs)[0]
+    expected = expected_logits(long_ids + result.sequences_ids[0])
+    for step, step_logits in enumerate(result.logits[0]):
+        np.testing.assert_allclose(
+            _to_numpy(step_logits, device).reshape(-1),
+            expected[len(long_ids) - 1 + step],
+            atol=1e-4,
+        )
+
+    # A static prompt longer than the window: the sliding layers then continue from a
+    # trimmed cache.
+    result = generator.generate_batch(
+        [to_tokens(long_ids[20:])], static_prompt=to_tokens(long_ids[:20]), **kwargs
+    )[0]
+    np.testing.assert_allclose(
+        _to_numpy(result.logits[0][0], device).reshape(-1),
+        expected[len(long_ids) - 1],
+        atol=1e-4,
+    )

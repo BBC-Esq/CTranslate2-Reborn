@@ -1925,16 +1925,38 @@ class Gemma3Loader(ModelLoader):
             num_heads_kv = None
 
         head_dim = text_config.head_dim
+        # Attention scores are scaled by query_pre_attn_scalar**-0.5, which is not
+        # head_dim**-0.5 in 27b (168 and 128).
+        queries_scale = getattr(text_config, "query_pre_attn_scalar", head_dim) ** -0.5
 
         activation_config = getattr(
             text_config, "hidden_activation", "gelu_pytorch_tanh"
         )
 
-        # Get RoPE parameters
-        rope_theta = getattr(text_config, "rope_theta", 1_000_000)  # Global: 1M
-        rope_local_base_freq = getattr(
-            text_config, "rope_local_base_freq", 10_000
-        )  # Local: 10k
+        # Get RoPE parameters: global layers use rope_theta (1M) and rope_scaling (linear,
+        # factor 8 in 4b/12b/27b), local layers use rope_local_base_freq (10k) unscaled.
+        # transformers 5 moved them to rope_parameters, keyed by layer type.
+        rope_parameters = getattr(text_config, "rope_parameters", None) or {
+            "full_attention": dict(
+                getattr(text_config, "rope_scaling", None) or {},
+                rope_theta=getattr(text_config, "rope_theta", 1_000_000),
+            ),
+            "sliding_attention": dict(
+                rope_theta=getattr(text_config, "rope_local_base_freq", 10_000)
+            ),
+        }
+        rope_theta, rope_factor = self._get_rope_theta_and_factor(
+            rope_parameters["full_attention"]
+        )
+        rope_local_base_freq, rope_local_factor = self._get_rope_theta_and_factor(
+            rope_parameters["sliding_attention"]
+        )
+        # Linear scaling is enabled on all layers, with each layer's factor set below.
+        rotary_scaling_type = (
+            attention_spec.RotaryScalingType.Linear
+            if rope_factor != 1 or rope_local_factor != 1
+            else None
+        )
 
         # Get sliding window configuration
         sliding_window = getattr(text_config, "sliding_window", 1024)
@@ -1983,6 +2005,7 @@ class Gemma3Loader(ModelLoader):
             rms_norm=True,
             rotary_dim=head_dim,
             rotary_interleave=False,
+            rotary_scaling_type=rotary_scaling_type,
             rotary_base=rope_local_base_freq,  # Default to local base freq
             num_heads_kv=num_heads_kv,
             head_dim=head_dim,
@@ -2000,9 +2023,14 @@ class Gemma3Loader(ModelLoader):
         # Override per-layer settings for global vs local attention
         for i, layer_type in enumerate(layer_types):
             layer = spec.decoder.layer[i]
+            layer.self_attention.queries_scale = np.dtype("float32").type(queries_scale)
             if layer_type == "full_attention":
                 layer.self_attention.rotary_base = np.dtype("float32").type(rope_theta)
                 layer.self_attention.sliding_window = np.dtype("int32").type(0)
+                if rotary_scaling_type is not None:
+                    layer.self_attention.rotary_scaling_factor = np.dtype(
+                        "float32"
+                    ).type(rope_factor)
             elif layer_type == "sliding_attention":
                 layer.self_attention.rotary_base = np.dtype("float32").type(
                     rope_local_base_freq
@@ -2010,11 +2038,31 @@ class Gemma3Loader(ModelLoader):
                 layer.self_attention.sliding_window = np.dtype("int32").type(
                     sliding_window
                 )
+                if rotary_scaling_type is not None:
+                    layer.self_attention.rotary_scaling_factor = np.dtype(
+                        "float32"
+                    ).type(rope_local_factor)
 
         text_model = getattr(model.model, "language_model", model.model)
         self.set_decoder(spec.decoder, text_model, quant_type)
         self.set_linear(spec.decoder.projection, model.lm_head)
         return spec
+
+    def _get_rope_theta_and_factor(self, rope_parameters):
+        rope_type = rope_parameters.get(
+            "rope_type", rope_parameters.get("type", "default")
+        )
+        if rope_type == "default":
+            factor = 1
+        elif rope_type == "linear":
+            factor = rope_parameters["factor"]
+        else:
+            raise NotImplementedError(
+                "RoPE scaling type '%s' is not yet implemented for Gemma 3. "
+                "The following RoPE scaling types are currently supported: linear"
+                % rope_type
+            )
+        return rope_parameters["rope_theta"], factor
 
     def get_vocabulary(self, model, tokenizer):
         tokens = super().get_vocabulary(model, tokenizer)

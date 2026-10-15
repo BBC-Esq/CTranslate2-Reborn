@@ -1121,6 +1121,78 @@ class TestWav2Vec2:
 
         assert transcription in expected_transcriptions
 
+    @test_utils.only_on_linux
+    def test_transformers_wav2vec2_packed_weights(self, tmp_dir):
+        # On Intel CPUs, MKL packs the linear weights at load time and stores them as
+        # weight_packed. The encoder must still find its feature extractor and LM head,
+        # so a tiny random model is run with MKL forced, with and without packing.
+        import subprocess
+        import sys
+
+        import torch
+        import transformers
+
+        torch.manual_seed(0)
+        model_dir = str(tmp_dir.join("hf_model"))
+        vocab_path = str(tmp_dir.join("vocab.json"))
+        with open(vocab_path, "w", encoding="utf-8") as vocab_file:
+            json.dump({"<pad>": 0, "<unk>": 1, "|": 2, "a": 3, "b": 4}, vocab_file)
+        tokenizer = transformers.Wav2Vec2CTCTokenizer(vocab_path)
+        config = transformers.Wav2Vec2Config(
+            vocab_size=len(tokenizer.get_vocab()),
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            intermediate_size=128,
+            feat_extract_norm="layer",
+            do_stable_layer_norm=True,
+            conv_dim=(32,) * 7,
+            conv_kernel=(10, 3, 3, 3, 3, 2, 2),
+            conv_stride=(5, 2, 2, 2, 2, 2, 2),
+            conv_bias=True,
+            num_conv_pos_embeddings=128,
+            num_conv_pos_embedding_groups=16,
+        )
+        model = transformers.Wav2Vec2ForCTC(config).eval()
+        model.save_pretrained(model_dir)
+        tokenizer.save_pretrained(model_dir)
+
+        audio = np.random.default_rng(0).standard_normal(16000).astype(np.float32)
+        audio_path = str(tmp_dir.join("audio.npy"))
+        np.save(audio_path, audio)
+        with torch.no_grad():
+            expected = model(torch.from_numpy(audio)[None]).logits.numpy()
+
+        output_dir = str(tmp_dir.join("ctranslate2_model"))
+        ctranslate2.converters.TransformersConverter(model_dir).convert(output_dir)
+
+        runner = (
+            "import sys\n"
+            "import numpy as np\n"
+            "import ctranslate2\n"
+            "model = ctranslate2.models.Wav2Vec2(sys.argv[1], device='cpu')\n"
+            "audio = np.ascontiguousarray(np.load(sys.argv[2])[np.newaxis, np.newaxis])\n"
+            "features = ctranslate2.StorageView.from_array(audio)\n"
+            "np.save(sys.argv[3], np.array(model.encode(features, to_cpu=True)))\n"
+        )
+        outputs = {}
+        for packed in ("0", "1"):
+            output_path = str(tmp_dir.join("output_packed_%s.npy" % packed))
+            env = dict(os.environ, CT2_USE_MKL="1", CT2_PACKED_GEMM=packed)
+            result = subprocess.run(
+                [sys.executable, "-c", runner, output_dir, audio_path, output_path],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if "not compiled with Intel MKL" in result.stderr:
+                pytest.skip("This CTranslate2 binary was not compiled with Intel MKL")
+            assert result.returncode == 0, result.stderr
+            outputs[packed] = np.load(output_path)
+
+        np.testing.assert_allclose(outputs["0"], expected, atol=1e-4)
+        np.testing.assert_allclose(outputs["1"], expected, atol=1e-4)
+
 
 class TestWav2Vec2Bert:
     @classmethod

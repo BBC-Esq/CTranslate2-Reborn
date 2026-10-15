@@ -2,6 +2,8 @@ name: CI
 
 on:
   workflow_dispatch:
+  release:
+    types: [released]
 
 jobs:
   build-and-test-cpp-x86_64:
@@ -505,9 +507,29 @@ jobs:
           flake8 .
 
 
+  check-release-version:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the release tag matches the package version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(python3 -c 'exec(open("python/ctranslate2/version.py").read()); print(__version__)')
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::The release tag $TAG doesn't match the version $VERSION in python/ctranslate2/version.py"
+            exit 1
+          fi
+          echo "Releasing version $VERSION"
+
+
   publish-python-wheels-on-pypi:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+    if: github.event_name == 'release'
     needs:
+      - check-release-version
       - build-and-test-cpp-x86_64
       - build-and-test-cpp-x86_64-address_sanitizer
       - build-and-test-cpp-arm64
@@ -536,6 +558,7 @@ jobs:
 
   build-and-push-docker-images:
     needs:
+      - check-release-version
       - build-and-test-cpp-x86_64
       - build-and-test-cpp-x86_64-address_sanitizer
       - build-and-test-cpp-arm64
@@ -581,7 +604,7 @@ jobs:
           ./docker/build_all.sh latest 0 ${{ matrix.gpu }}
 
       - name: Login to DockerHub
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+        if: github.event_name == 'release'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -589,21 +612,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker images
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          ./docker/build_all.sh ${GITHUB_REF##*/v} 1 ${{ matrix.gpu }}
+          ./docker/build_all.sh "$TAG" 1 ${{ matrix.gpu }}
 
 
-  create-github-release:
+  attach-rocm-wheels-to-release:
     runs-on: ubuntu-latest
-    needs: [check-python-style, build-python-wheels, build-python-wheels-rocm, test-python-wheels]
+    needs: [check-release-version, check-python-style, build-python-wheels, build-python-wheels-rocm, test-python-wheels]
 
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Download ROCm wheels and zip for release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -621,8 +646,8 @@ jobs:
           zip -r release-zips/rocm-python-wheels-Windows.zip temp-windows/*
           rm -rf temp-windows
 
-      - name: Create GitHub Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+      - name: Attach the ROCm wheels to the GitHub release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: release-zips/*.zip

@@ -68,14 +68,14 @@ ctranslate2_module = Extension(
 ParallelCompile("CMAKE_BUILD_PARALLEL_LEVEL").install()
 
 setup(
-    name="ctranslate2",
+    name="ctranslate2-reborn",
     version=_get_project_version(),
     license="MIT",
-    description="Fast inference engine for Transformer models",
+    description="Unofficial fork of CTranslate2, a fast inference engine for Transformer models",
     long_description=_get_long_description(),
     long_description_content_type="text/markdown",
-    author="OpenNMT",
-    url="https://opennmt.net",
+    author="Blair Chintella",
+    url="https://github.com/BBC-Esq/CTranslate2-Reborn",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
@@ -92,12 +92,10 @@ setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     project_urls={
-        "Documentation": "https://opennmt.net/CTranslate2",
-        "Forum": "https://forum.opennmt.net",
-        "Gitter": "https://gitter.im/OpenNMT/CTranslate2",
-        "Source": "https://github.com/OpenNMT/CTranslate2",
+        "Source": "https://github.com/BBC-Esq/CTranslate2-Reborn",
+        "Issues": "https://github.com/BBC-Esq/CTranslate2-Reborn/issues",
     },
-    keywords="opennmt nmt neural machine translation cuda mkl inference quantization",
+    keywords="nmt neural machine translation cuda mkl inference quantization",
     packages=find_packages(exclude=["bin"]),
     package_data=package_data,
     ext_modules=[ctranslate2_module],

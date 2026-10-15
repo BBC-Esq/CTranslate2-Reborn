@@ -46,8 +46,11 @@ namespace ctranslate2 {
     }
 
     Wav2Vec2Encoder::Wav2Vec2Encoder(const models::Model& model, const std::string& scope)
-      : _upgraded_model(model.get_variable_if_exists(scope + "/fp_projection/weight"))
-      , _return_logits(model.get_variable_if_exists(scope + "/lm_head/weight"))
+      // A linear weight packed for the Gemm backend (MKL on Intel CPUs) is stored as weight_packed.
+      : _upgraded_model(model.get_variable_if_exists(scope + "/fp_projection/weight")
+                        || model.get_variable_if_exists(scope + "/fp_projection/weight_packed"))
+      , _return_logits(model.get_variable_if_exists(scope + "/lm_head/weight")
+                       || model.get_variable_if_exists(scope + "/lm_head/weight_packed"))
       , _transpose({0, 2, 1})
       , _num_heads(model.get_attribute_with_default<int32_t>(scope + "/num_heads", 8))
       , _layers(build_layers_list<const TransformerEncoderLayer>(model,

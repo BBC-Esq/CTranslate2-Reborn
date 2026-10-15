@@ -17,7 +17,8 @@ namespace ctranslate2 {
                                           output.data<T>(),
                                           batch_size,
                                           depth,
-                                          _log)));
+                                          _log,
+                                          _window)));
     }
 
 #define DECLARE_IMPL(T)                                                 \

@@ -13,6 +13,7 @@ namespace ctranslate2 {
                                const dim_t rows,
                                const dim_t cols,
                                const int32_t* lengths,
+                               const dim_t window,
                                T* y);
 
     template <Device D, typename T>
@@ -27,6 +28,7 @@ namespace ctranslate2 {
                      batch_size,
                      depth,
                      lengths ? lengths->data<int32_t>() : nullptr,
+                     _window,
                      output.data<T>());
     }
 
@@ -197,7 +199,8 @@ namespace at {
     cunn_SoftMaxForward(outscalar_t *output,
                         const scalar_t *input,
                         const index_t classes,
-                        const length_t *lengths)
+                        const length_t *lengths,
+                        const index_t window)
     {
       extern __shared__ unsigned char smem[];
       auto sdata = reinterpret_cast<accscalar_t*>(smem);
@@ -214,6 +217,16 @@ namespace at {
         size = lengths[row];
         for (index_t i = size + threadIdx.x; i < classes; i += blockDim.x)
           output[i] = 0.f;
+
+        // With a sliding window, the positions before the window are out of range too.
+        if (window > 0 && size > window) {
+          const index_t start = size - window;
+          for (index_t i = threadIdx.x; i < start; i += blockDim.x)
+            output[i] = 0.f;
+          input += start;
+          output += start;
+          size = window;
+        }
       }
 
       // find the max
@@ -252,7 +265,8 @@ namespace ctranslate2 {
                                         const T* input,
                                         const cuda::index_t rows,
                                         const cuda::index_t cols,
-                                        const int32_t* lengths) {
+                                        const int32_t* lengths,
+                                        const cuda::index_t window) {
       constexpr int values_per_thread = max_cols / softmax_warp_size;
 
       const cuda::index_t row = blockIdx.x * softmax_warps_per_block + threadIdx.x / softmax_warp_size;
@@ -261,6 +275,8 @@ namespace ctranslate2 {
 
       const cuda::index_t lane = threadIdx.x % softmax_warp_size;
       const cuda::index_t size = lengths ? lengths[row] : cols;
+      // With a sliding window, only the last window positions before size are in range.
+      const cuda::index_t start = lengths && window > 0 && size > window ? size - window : 0;
       input += row * cols;
       output += row * cols;
 
@@ -269,7 +285,7 @@ namespace ctranslate2 {
 #pragma unroll
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = lane + k * softmax_warp_size;
-        values[k] = i < size ? float(input[i]) : -softmax_max_float;
+        values[k] = i >= start && i < size ? float(input[i]) : -softmax_max_float;
         max_value = ::max(max_value, values[k]);
       }
       max_value = cuda::warp_all_reduce(max_value, cuda::maximum<float>());
@@ -278,7 +294,7 @@ namespace ctranslate2 {
 #pragma unroll
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = lane + k * softmax_warp_size;
-        if (i < size) {
+        if (i >= start && i < size) {
           const float exp_value = std::exp(values[k] - max_value);
           if (!log_softmax)
             values[k] = exp_value;
@@ -292,7 +308,7 @@ namespace ctranslate2 {
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = lane + k * softmax_warp_size;
         if (i < cols) {
-          if (i >= size)
+          if (i < start || i >= size)
             output[i] = T(0.f);
           else if (log_softmax)
             output[i] = T(values[k] - max_value - log_sum);
@@ -308,21 +324,22 @@ namespace ctranslate2 {
                                          const dim_t rows,
                                          const dim_t cols,
                                          const int32_t* lengths,
+                                         const dim_t window,
                                          T* y) {
       const dim3 grid(ceil_divide(rows, dim_t(softmax_warps_per_block)));
       const dim3 block(softmax_warps_per_block * softmax_warp_size);
       if (cols <= 32)
-        softmax_warp_kernel<T, 32, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 32, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
       else if (cols <= 64)
-        softmax_warp_kernel<T, 64, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 64, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
       else if (cols <= 128)
-        softmax_warp_kernel<T, 128, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 128, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
       else if (cols <= 256)
-        softmax_warp_kernel<T, 256, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 256, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
       else if (cols <= 512)
-        softmax_warp_kernel<T, 512, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 512, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
       else
-        softmax_warp_kernel<T, 1024, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths);
+        softmax_warp_kernel<T, 1024, log_softmax><<<grid, block, 0, stream>>>(y, x, rows, cols, lengths, window);
     }
 
     // Longer rows, up to 8192 values (such as attention scores over long prompts), are handled by
@@ -352,12 +369,15 @@ namespace ctranslate2 {
     __global__ void softmax_block_kernel(T* output,
                                          const T* input,
                                          const cuda::index_t cols,
-                                         const int32_t* lengths) {
+                                         const int32_t* lengths,
+                                         const cuda::index_t window) {
       constexpr int threads = softmax_block_warps * softmax_warp_size;
       __shared__ float warp_values[softmax_block_warps];
 
       const cuda::index_t row = blockIdx.x;
       const cuda::index_t size = lengths ? lengths[row] : cols;
+      // With a sliding window, only the last window positions before size are in range.
+      const cuda::index_t start = lengths && window > 0 && size > window ? size - window : 0;
       input += row * cols;
       output += row * cols;
 
@@ -366,7 +386,7 @@ namespace ctranslate2 {
 #pragma unroll
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = threadIdx.x + k * threads;
-        values[k] = i < size ? float(input[i]) : -softmax_max_float;
+        values[k] = i >= start && i < size ? float(input[i]) : -softmax_max_float;
         max_value = ::max(max_value, values[k]);
       }
       max_value = softmax_block_all_reduce(max_value, cuda::maximum<float>(), -softmax_max_float, warp_values);
@@ -375,7 +395,7 @@ namespace ctranslate2 {
 #pragma unroll
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = threadIdx.x + k * threads;
-        if (i < size) {
+        if (i >= start && i < size) {
           const float exp_value = std::exp(values[k] - max_value);
           if (!log_softmax)
             values[k] = exp_value;
@@ -389,7 +409,7 @@ namespace ctranslate2 {
       for (int k = 0; k < values_per_thread; ++k) {
         const cuda::index_t i = threadIdx.x + k * threads;
         if (i < cols) {
-          if (i >= size)
+          if (i < start || i >= size)
             output[i] = T(0.f);
           else if (log_softmax)
             output[i] = T(values[k] - max_value - log_sum);
@@ -405,14 +425,15 @@ namespace ctranslate2 {
                                           const dim_t rows,
                                           const dim_t cols,
                                           const int32_t* lengths,
+                                          const dim_t window,
                                           T* y) {
       constexpr dim_t threads = softmax_block_warps * softmax_warp_size;
       if (cols <= threads * 8)
-        softmax_block_kernel<T, 8, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths);
+        softmax_block_kernel<T, 8, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths, window);
       else if (cols <= threads * 16)
-        softmax_block_kernel<T, 16, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths);
+        softmax_block_kernel<T, 16, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths, window);
       else
-        softmax_block_kernel<T, 32, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths);
+        softmax_block_kernel<T, 32, log_softmax><<<rows, threads, 0, stream>>>(y, x, cols, lengths, window);
     }
 
     template <typename T, template <typename, typename, typename> class Epilogue>
@@ -421,6 +442,7 @@ namespace ctranslate2 {
                                     const dim_t rows,
                                     const dim_t cols,
                                     const int32_t* lengths,
+                                    const dim_t window,
                                     T* y) {
       const dim3 grid(rows);
       const dim3 block(cuda::get_block_size(cols));
@@ -428,7 +450,8 @@ namespace ctranslate2 {
         <<<grid, block, block.x * sizeof (float), stream>>>(y,
                                                             x,
                                                             cols,
-                                                            lengths);
+                                                            lengths,
+                                                            static_cast<cuda::index_t>(window));
     }
 
     template <typename T>
@@ -438,27 +461,28 @@ namespace ctranslate2 {
                                const dim_t rows,
                                const dim_t cols,
                                const int32_t* lengths,
+                               const dim_t window,
                                T* y) {
       if (cols <= softmax_warp_max_cols) {
         if (log_softmax)
           softmax_warp_kernel_impl<cuda::device_type<T>, true>(
-            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+            stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
         else
           softmax_warp_kernel_impl<cuda::device_type<T>, false>(
-            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+            stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
       } else if (cols <= softmax_block_max_cols) {
         if (log_softmax)
           softmax_block_kernel_impl<cuda::device_type<T>, true>(
-            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+            stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
         else
           softmax_block_kernel_impl<cuda::device_type<T>, false>(
-            stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+            stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
       } else if (log_softmax)
         softmax_kernel_impl<cuda::device_type<T>, at::native::LogSoftMaxForwardEpilogue>(
-          stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+          stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
       else
         softmax_kernel_impl<cuda::device_type<T>, at::native::SoftMaxForwardEpilogue>(
-          stream, cuda::device_cast(x), rows, cols, lengths, cuda::device_cast(y));
+          stream, cuda::device_cast(x), rows, cols, lengths, window, cuda::device_cast(y));
     }
 
   }

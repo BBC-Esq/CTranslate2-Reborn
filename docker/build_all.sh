@@ -22,7 +22,7 @@ VERSION=${1:-latest}
 PUSH=${2:-0}
 GPU=${3:-cuda}
 ROCM_VERSION=${ROCM_VERSION:-7.2.1}
-IMAGE=ghcr.io/opennmt/ctranslate2
+IMAGE=ghcr.io/bbc-esq/ctranslate2-reborn
 
 build()
 {

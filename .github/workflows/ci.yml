@@ -560,6 +560,9 @@ jobs:
 
 
   build-and-push-docker-images:
+    permissions:
+      contents: read
+      packages: write
     needs:
       - check-release-version
       - build-and-test-cpp-x86_64
@@ -606,7 +609,7 @@ jobs:
         run: |
           ./docker/build_all.sh latest 0 ${{ matrix.gpu }}
 
-      - name: Login to DockerHub
+      - name: Log in to the GitHub Container Registry
         if: github.event_name == 'release'
         uses: docker/login-action@v3
         with:

@@ -7,7 +7,9 @@ namespace ctranslate2 {
 
     class SoftMax : public UnaryOp {
     public:
-      SoftMax(bool log = false);
+      // With lengths, row i is normalized over its first lengths[i] values. A positive window
+      // further restricts it to the last window of those values (sliding window attention).
+      SoftMax(bool log = false, dim_t window = 0);
 
       using UnaryOp::operator();
       void operator()(StorageView& x) const;
@@ -20,6 +22,7 @@ namespace ctranslate2 {
       void compute(const StorageView& input, const StorageView* lengths, StorageView& output) const;
 
       bool _log;
+      dim_t _window;
     };
 
 

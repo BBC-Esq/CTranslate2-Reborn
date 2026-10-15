@@ -24,7 +24,8 @@ namespace ctranslate2 {
                                bool with_cache = false,
                                dim_t beam_size = 1,
                                Alibi* alibi = nullptr,
-                               StorageView* position_bias = nullptr);
+                               StorageView* position_bias = nullptr,
+                               dim_t sliding_window = 0);
 
   }
 }

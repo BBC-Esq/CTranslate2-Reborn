@@ -9,8 +9,9 @@ namespace ctranslate2 {
       : SoftMax(/*log=*/true) {
     }
 
-    SoftMax::SoftMax(bool log)
-      : _log(log) {
+    SoftMax::SoftMax(bool log, dim_t window)
+      : _log(log)
+      , _window(window) {
     }
 
     void SoftMax::operator()(StorageView& x) const {

@@ -405,7 +405,8 @@ namespace ctranslate2 {
                              float* output,
                              dim_t batch_size,
                              dim_t depth,
-                             bool log) {
+                             bool log,
+                             dim_t window) {
       using VecType = Vec<float, TARGET_ISA>;
 
       parallel_for(0, batch_size, 1, [&](dim_t begin, dim_t end) {
@@ -421,6 +422,17 @@ namespace ctranslate2 {
             // Directly set 0 in output for out of range positions.
             for (dim_t j = size; j < depth; ++j) {
               y[j] = 0;
+            }
+
+            // With a sliding window, the positions before the window are out of range too.
+            if (window > 0 && size > window) {
+              const dim_t start = size - window;
+              for (dim_t j = 0; j < start; ++j) {
+                y[j] = 0;
+              }
+              x += start;
+              y += start;
+              size = window;
             }
 
             if (size == 0) {

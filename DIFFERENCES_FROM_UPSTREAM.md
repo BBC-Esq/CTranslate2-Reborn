@@ -29,3 +29,8 @@ Prompts longer than the sliding window no longer give degenerate output that var
 - [Run the CI workflow only when started from the Actions tab](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/e314f7a7b377cb839559833be34164db86253240)
 - [Publish the Python package as ctranslate2-reborn](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/c467d7c88562a67798eeabe16e738407a919f6ef)
 - [Add Blair Chintella to the copyright notice](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/bc8ef1590054a0c765f5c2916fe46a20f4d2d7d7)
+
+## Documentation (2026-10-15)
+
+- [Replace the README with a short description of the fork](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/874ef071f9cb15a26a4525445d46dbcb5d6d7fb8)
+- [Remove upstream's contributing guide, release checklist and security policy](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/fce80090a6a9dab0fdba0c3d57f7d44842186191)

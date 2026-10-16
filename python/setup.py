@@ -90,7 +90,6 @@ setup(
         "Intended Audience :: Science/Research",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
@@ -106,7 +105,7 @@ setup(
     packages=find_packages(exclude=["bin"]),
     package_data=package_data,
     ext_modules=[ctranslate2_module],
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     install_requires=[
         "numpy",
         "pyyaml>=5.3,<7",

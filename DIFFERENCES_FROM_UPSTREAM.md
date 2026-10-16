@@ -53,3 +53,16 @@ Prompts longer than the sliding window no longer give degenerate output that var
 ## Docker images removed (2026-10-15)
 
 - [Remove the Docker images and their CI job](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/05b3372112f76d3a3bad9e9f75412a690725550e)
+
+## CUDA 13 (2026-10-16)
+
+The wheels are built with CUDA 13.0.3 instead of 12.8. That drops GPUs older than Turing and needs NVIDIA driver 580 or newer, and `pip install ctranslate2-reborn[cuda]` also installs cuBLAS 13.
+
+- [Upgrade CCCL to 3.0.1 for CUDA 13 support](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/3c6418a962ddc9f529aeacc496d27096cbff9371)
+- [Support CUDA 13 GPU architectures](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/01f3a67ae8e86e27bf6d1ba75583250e42f0fcfd)
+- [Add native Ada, Hopper and Blackwell code to the Common architecture list](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/179a7ad8a952ef5f141ae9ffe7bb7949da8aff8e)
+- [Find CUDA 13 DLLs on Windows](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/3483daff418e21d7a74b4a8424a014f303c7109a)
+- [Build the CI wheels with CUDA 13.0.3](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/f68cfd19360832bce8c112799febfcdb591c0ef3)
+- [Add a cuda extra that installs cuBLAS from NVIDIA's pip packages](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/b8083d3fdd1f2ec94decdd1ae91871f6bbbcba8a)
+- [Load cuBLAS from PyTorch's folder on Windows when the cuda extra is missing](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/a16a5bbb7738ac9e39018a43b50272f4fc3be7cd)
+- [Prefer PyTorch's cuBLAS on Windows over NVIDIA's pip copy](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/95bc3829376866533d354d58d1659029e45f610a)

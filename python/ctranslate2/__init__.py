@@ -75,7 +75,8 @@ def _load_cuda_libraries():
     # The "cuda" extra installs cuBLAS and NVRTC from NVIDIA's pip packages, which are not on
     # the library search path. Load them by path so that the CUDA backend finds them by name,
     # unless a library with the same name is already loaded (e.g. by PyTorch). On Windows,
-    # PyTorch's CUDA 13 builds bundle the same libraries, which are used without the extra.
+    # PyTorch's CUDA 13 builds bundle the same libraries: those come first, so that PyTorch
+    # keeps its own copies when it is imported later.
     import ctypes
     import glob
     import os
@@ -93,11 +94,11 @@ def _load_cuda_libraries():
         return list(spec.submodule_search_locations)
 
     if sys.platform == "win32" and platform.machine() == "AMD64":
-        library_dirs = [
+        library_dirs = [os.path.join(path, "lib") for path in package_dirs("torch")]
+        library_dirs += [
             os.path.join(path, "cu13", "bin", "x86_64")
             for path in package_dirs("nvidia")
         ]
-        library_dirs += [os.path.join(path, "lib") for path in package_dirs("torch")]
         names = [
             "cublasLt64_13.dll",
             "cublas64_13.dll",

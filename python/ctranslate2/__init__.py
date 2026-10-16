@@ -70,6 +70,65 @@ except ImportError as e:
 from ctranslate2 import models
 from ctranslate2.version import __version__
 
+
+def _load_cuda_libraries():
+    # The "cuda" extra installs cuBLAS and NVRTC from NVIDIA's pip packages, which are not on
+    # the library search path. Load them by path so that the CUDA backend finds them by name,
+    # unless a library with the same name is already loaded (e.g. by PyTorch).
+    import ctypes
+    import glob
+    import os
+    import platform
+
+    from importlib.resources import files
+
+    if sys.platform == "win32" and platform.machine() == "AMD64":
+        library_dir = os.path.join("nvidia", "cu13", "bin", "x86_64")
+        names = [
+            "cublasLt64_13.dll",
+            "cublas64_13.dll",
+            "nvrtc-builtins64_13*.dll",
+            "nvrtc64_130_0.dll",
+        ]
+        get_module_handle = ctypes.WinDLL("kernel32").GetModuleHandleW
+        get_module_handle.argtypes = [ctypes.c_wchar_p]
+        get_module_handle.restype = ctypes.c_void_p
+
+        def is_loaded(name):
+            return get_module_handle(name) is not None
+
+    elif sys.platform == "linux" and platform.machine() == "x86_64":
+        library_dir = os.path.join("nvidia", "cu13", "lib")
+        names = [
+            "libcublasLt.so.13",
+            "libcublas.so.13",
+            "libnvrtc-builtins.so.13*",
+            "libnvrtc.so.13",
+        ]
+
+        def is_loaded(name):
+            try:
+                ctypes.CDLL(name, mode=os.RTLD_NOLOAD)
+                return True
+            except OSError:
+                return False
+
+    else:
+        return
+
+    site_dir = os.path.dirname(str(files(__name__)))
+    for name in names:
+        for path in glob.glob(os.path.join(site_dir, library_dir, name)):
+            if not is_loaded(os.path.basename(path)):
+                try:
+                    ctypes.CDLL(path)
+                except OSError:
+                    pass
+
+
+_load_cuda_libraries()
+del _load_cuda_libraries
+
 # converters and specs import torch (and, for converters, transformers) at module level.
 # Those dependencies are only needed to convert models, not to run inference, so import
 # these submodules on first use to keep "import ctranslate2" free of them.

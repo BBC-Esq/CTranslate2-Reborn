@@ -78,7 +78,7 @@ setup(
     url="https://github.com/BBC-Esq/CTranslate2-Reborn",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
+        "Environment :: GPU :: NVIDIA CUDA :: 13",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Programming Language :: Python :: 3",

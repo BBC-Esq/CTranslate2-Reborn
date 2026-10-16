@@ -66,3 +66,7 @@ The wheels are built with CUDA 13.0.3 instead of 12.8. That drops GPUs older tha
 - [Add a cuda extra that installs cuBLAS from NVIDIA's pip packages](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/b8083d3fdd1f2ec94decdd1ae91871f6bbbcba8a)
 - [Load cuBLAS from PyTorch's folder on Windows when the cuda extra is missing](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/a16a5bbb7738ac9e39018a43b50272f4fc3be7cd)
 - [Prefer PyTorch's cuBLAS on Windows over NVIDIA's pip copy](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/95bc3829376866533d354d58d1659029e45f610a)
+
+## Python 3.9 dropped (2026-10-16)
+
+- [Drop Python 3.9](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/838997341c47f3391b70261ad49a383d6be769a4)

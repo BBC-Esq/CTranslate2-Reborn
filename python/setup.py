@@ -67,6 +67,13 @@ ctranslate2_module = Extension(
 
 ParallelCompile("CMAKE_BUILD_PARALLEL_LEVEL").install()
 
+# The platforms with CUDA wheels. NVIDIA's CUDA 13 packages group NVRTC with cuBLAS, which can
+# load it at run time.
+cuda_platforms = (
+    '(sys_platform == "linux" and platform_machine == "x86_64")'
+    ' or (sys_platform == "win32" and platform_machine == "AMD64")'
+)
+
 setup(
     name="ctranslate2-reborn",
     version=_get_project_version(),
@@ -104,6 +111,12 @@ setup(
         "numpy",
         "pyyaml>=5.3,<7",
     ],
+    extras_require={
+        "cuda": [
+            f"nvidia-cublas>=13.1.1.3,<14; {cuda_platforms}",
+            f"nvidia-cuda-nvrtc>=13.0.88,<14; {cuda_platforms}",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "ct2-fairseq-converter=ctranslate2.converters.fairseq:main",

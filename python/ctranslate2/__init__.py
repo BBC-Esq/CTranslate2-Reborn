@@ -74,16 +74,30 @@ from ctranslate2.version import __version__
 def _load_cuda_libraries():
     # The "cuda" extra installs cuBLAS and NVRTC from NVIDIA's pip packages, which are not on
     # the library search path. Load them by path so that the CUDA backend finds them by name,
-    # unless a library with the same name is already loaded (e.g. by PyTorch).
+    # unless a library with the same name is already loaded (e.g. by PyTorch). On Windows,
+    # PyTorch's CUDA 13 builds bundle the same libraries, which are used without the extra.
     import ctypes
     import glob
     import os
     import platform
 
-    from importlib.resources import files
+    from importlib.util import find_spec
+
+    def package_dirs(name):
+        try:
+            spec = find_spec(name)
+        except (ImportError, ValueError):
+            return []
+        if spec is None or spec.submodule_search_locations is None:
+            return []
+        return list(spec.submodule_search_locations)
 
     if sys.platform == "win32" and platform.machine() == "AMD64":
-        library_dir = os.path.join("nvidia", "cu13", "bin", "x86_64")
+        library_dirs = [
+            os.path.join(path, "cu13", "bin", "x86_64")
+            for path in package_dirs("nvidia")
+        ]
+        library_dirs += [os.path.join(path, "lib") for path in package_dirs("torch")]
         names = [
             "cublasLt64_13.dll",
             "cublas64_13.dll",
@@ -98,7 +112,9 @@ def _load_cuda_libraries():
             return get_module_handle(name) is not None
 
     elif sys.platform == "linux" and platform.machine() == "x86_64":
-        library_dir = os.path.join("nvidia", "cu13", "lib")
+        library_dirs = [
+            os.path.join(path, "cu13", "lib") for path in package_dirs("nvidia")
+        ]
         names = [
             "libcublasLt.so.13",
             "libcublas.so.13",
@@ -116,14 +132,18 @@ def _load_cuda_libraries():
     else:
         return
 
-    site_dir = os.path.dirname(str(files(__name__)))
     for name in names:
-        for path in glob.glob(os.path.join(site_dir, library_dir, name)):
-            if not is_loaded(os.path.basename(path)):
-                try:
-                    ctypes.CDLL(path)
-                except OSError:
-                    pass
+        paths = [
+            path for d in library_dirs for path in glob.glob(os.path.join(d, name))
+        ]
+        for path in paths:
+            if is_loaded(os.path.basename(path)):
+                break
+            try:
+                ctypes.CDLL(path)
+                break
+            except OSError:
+                pass
 
 
 _load_cuda_libraries()

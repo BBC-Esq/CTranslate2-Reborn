@@ -75,8 +75,8 @@ def _load_cuda_libraries():
     # The "cuda" extra installs cuBLAS and NVRTC from NVIDIA's pip packages, which are not on
     # the library search path. Load them by path so that the CUDA backend finds them by name,
     # unless a library with the same name is already loaded (e.g. by PyTorch). On Windows,
-    # PyTorch's CUDA 13 builds bundle the same libraries: those come first, so that PyTorch
-    # keeps its own copies when it is imported later.
+    # PyTorch's CUDA builds bundle the same libraries: those come first, so that PyTorch keeps
+    # its own copies when it is imported later.
     import ctypes
     import glob
     import os
@@ -93,17 +93,32 @@ def _load_cuda_libraries():
             return []
         return list(spec.submodule_search_locations)
 
+    # The CUDA 12 wheels have a local version label such as +cu128 (see setup.py).
+    local_label = __version__.partition("+")[2]
+    cuda12 = any(part.startswith("cu12") for part in local_label.split("."))
+
     if sys.platform == "win32" and platform.machine() == "AMD64":
+        if cuda12:
+            nvidia_dirs = [("cublas", "bin"), ("cuda_nvrtc", "bin")]
+            names = [
+                "cublasLt64_12.dll",
+                "cublas64_12.dll",
+                "nvrtc-builtins64_12*.dll",
+                "nvrtc64_120_0.dll",
+            ]
+        else:
+            nvidia_dirs = [("cu13", "bin", "x86_64")]
+            names = [
+                "cublasLt64_13.dll",
+                "cublas64_13.dll",
+                "nvrtc-builtins64_13*.dll",
+                "nvrtc64_130_0.dll",
+            ]
         library_dirs = [os.path.join(path, "lib") for path in package_dirs("torch")]
         library_dirs += [
-            os.path.join(path, "cu13", "bin", "x86_64")
+            os.path.join(path, *subdir)
             for path in package_dirs("nvidia")
-        ]
-        names = [
-            "cublasLt64_13.dll",
-            "cublas64_13.dll",
-            "nvrtc-builtins64_13*.dll",
-            "nvrtc64_130_0.dll",
+            for subdir in nvidia_dirs
         ]
         get_module_handle = ctypes.WinDLL("kernel32").GetModuleHandleW
         get_module_handle.argtypes = [ctypes.c_wchar_p]
@@ -113,14 +128,26 @@ def _load_cuda_libraries():
             return get_module_handle(name) is not None
 
     elif sys.platform == "linux" and platform.machine() == "x86_64":
+        if cuda12:
+            nvidia_dirs = [("cublas", "lib"), ("cuda_nvrtc", "lib")]
+            names = [
+                "libcublasLt.so.12",
+                "libcublas.so.12",
+                "libnvrtc-builtins.so.12*",
+                "libnvrtc.so.12",
+            ]
+        else:
+            nvidia_dirs = [("cu13", "lib")]
+            names = [
+                "libcublasLt.so.13",
+                "libcublas.so.13",
+                "libnvrtc-builtins.so.13*",
+                "libnvrtc.so.13",
+            ]
         library_dirs = [
-            os.path.join(path, "cu13", "lib") for path in package_dirs("nvidia")
-        ]
-        names = [
-            "libcublasLt.so.13",
-            "libcublas.so.13",
-            "libnvrtc-builtins.so.13*",
-            "libnvrtc.so.13",
+            os.path.join(path, *subdir)
+            for path in package_dirs("nvidia")
+            for subdir in nvidia_dirs
         ]
 
         def is_loaded(name):

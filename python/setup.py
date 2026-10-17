@@ -6,6 +6,7 @@ import pybind11
 
 from pybind11.setup_helpers import ParallelCompile
 from setuptools import Extension, find_packages, setup
+from setuptools.command.build_py import build_py
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 include_dirs = [pybind11.get_include()]
@@ -67,16 +68,51 @@ ctranslate2_module = Extension(
 
 ParallelCompile("CMAKE_BUILD_PARALLEL_LEVEL").install()
 
-# The platforms with CUDA wheels. NVIDIA's CUDA 13 packages group NVRTC with cuBLAS, which can
-# load it at run time.
+# The CUDA version the library is built with: 13.0 for the PyPI wheels, or 12.8 for the wheels
+# attached to GitHub releases. CTRANSLATE2_CUDA_VERSION sets it for this script and for
+# python/tools/prepare_build_environment_*.sh. NVIDIA's CUDA 13 packages group NVRTC with
+# cuBLAS, which can load it at run time; for CUDA 12, its newest cuBLAS brings NVRTC along.
+cuda_version = os.environ.get("CTRANSLATE2_CUDA_VERSION", "13.0")
+cuda_requirements = {
+    "13.0": ["nvidia-cublas>=13.1.1.3,<14", "nvidia-cuda-nvrtc>=13.0.88,<14"],
+    "12.8": ["nvidia-cublas-cu12>=12.8.4.1,<13"],
+}
+if cuda_version not in cuda_requirements:
+    raise ValueError(f"Unsupported CTRANSLATE2_CUDA_VERSION {cuda_version}")
+
+# The platforms with CUDA wheels.
 cuda_platforms = (
     '(sys_platform == "linux" and platform_machine == "x86_64")'
     ' or (sys_platform == "win32" and platform_machine == "AMD64")'
 )
 
+# Wheels for other CUDA versions get a local version label, e.g. 4.8.3.post2+cu128, which also
+# tells the loader in __init__.py which cuBLAS to look for.
+base_version = _get_project_version()
+project_version = base_version
+if cuda_version != "13.0":
+    separator = "." if "+" in base_version else "+"
+    project_version += separator + "cu" + cuda_version.replace(".", "")
+
+
+class BuildPy(build_py):
+    def run(self):
+        super().run()
+        # Give the package the labeled version too, so that __version__ matches the wheel.
+        package_dir = os.path.join(self.build_lib, "ctranslate2")
+        if project_version != base_version and os.path.isdir(package_dir):
+            source_path = os.path.join(base_dir, "ctranslate2", "version.py")
+            with open(source_path, encoding="utf-8") as version_file:
+                text = version_file.read()
+            text = text.replace(f'"{base_version}"', f'"{project_version}"')
+            target_path = os.path.join(package_dir, "version.py")
+            with open(target_path, "w", encoding="utf-8") as version_file:
+                version_file.write(text)
+
+
 setup(
     name="ctranslate2-reborn",
-    version=_get_project_version(),
+    version=project_version,
     license="MIT",
     description="Unofficial fork of CTranslate2, a fast inference engine for Transformer models",
     long_description=_get_long_description(),
@@ -85,7 +121,7 @@ setup(
     url="https://github.com/BBC-Esq/CTranslate2-Reborn",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "Environment :: GPU :: NVIDIA CUDA :: 13",
+        f"Environment :: GPU :: NVIDIA CUDA :: {cuda_version.split('.')[0]}",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Programming Language :: Python :: 3",
@@ -112,10 +148,11 @@ setup(
     ],
     extras_require={
         "cuda": [
-            f"nvidia-cublas>=13.1.1.3,<14; {cuda_platforms}",
-            f"nvidia-cuda-nvrtc>=13.0.88,<14; {cuda_platforms}",
+            f"{requirement}; {cuda_platforms}"
+            for requirement in cuda_requirements[cuda_version]
         ],
     },
+    cmdclass={"build_py": BuildPy},
     entry_points={
         "console_scripts": [
             "ct2-fairseq-converter=ctranslate2.converters.fairseq:main",

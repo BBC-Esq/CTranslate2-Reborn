@@ -3,10 +3,24 @@
 set -e
 set -x
 
-CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0"
-curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/13.0.3/local_installers/cuda_13.0.3_windows.exe
-# CUDA 13 moved the compiler headers (crt) and NVVM out of the nvcc subpackage.
-./cuda.exe -s nvcc_13.0 crt_13.0 nvvm_13.0 thrust_13.0 cudart_13.0 cublas_dev_13.0 curand_dev_13.0
+case "${CTRANSLATE2_CUDA_VERSION:-13.0}" in
+13.0)
+    CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0"
+    curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/13.0.3/local_installers/cuda_13.0.3_windows.exe
+    # CUDA 13 moved the compiler headers (crt) and NVVM out of the nvcc subpackage.
+    ./cuda.exe -s nvcc_13.0 crt_13.0 nvvm_13.0 thrust_13.0 cudart_13.0 cublas_dev_13.0 curand_dev_13.0
+    ;;
+12.8)
+    # CUDA 12.8, for the wheels attached to GitHub releases.
+    CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8"
+    curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda_12.8.1_572.61_windows.exe
+    ./cuda.exe -s nvcc_12.8 cudart_12.8 cublas_dev_12.8 curand_dev_12.8
+    ;;
+*)
+    echo "Unsupported CTRANSLATE2_CUDA_VERSION $CTRANSLATE2_CUDA_VERSION" >&2
+    exit 1
+    ;;
+esac
 
 rm cuda.exe
 

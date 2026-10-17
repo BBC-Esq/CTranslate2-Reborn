@@ -70,3 +70,9 @@ The wheels are built with CUDA 13.0.3 instead of 12.8. That drops GPUs older tha
 ## Python 3.9 dropped (2026-10-16)
 
 - [Drop Python 3.9](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/838997341c47f3391b70261ad49a383d6be769a4)
+
+## CUDA 12.8 wheels on GitHub releases (2026-10-17)
+
+PyPI keeps the CUDA 13 wheels. Each GitHub release also gets CUDA 12.8 wheels for Linux and Windows, labeled `+cu128`, for GPUs older than Turing and NVIDIA drivers older than 580.
+
+- [Build CUDA 12.8 wheels and attach them to GitHub releases](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/3f906885f31bdb5a8d8f153580badd204c356117)

@@ -14,6 +14,10 @@ pip install ctranslate2-reborn
 
 > Can't be installed alongside upstream's `ctranslate2` package, since both install the `ctranslate2` module. Uninstall `ctranslate2` and use `ctranslate2-reborn` instead.
 
+For NVIDIA GPUs, use `pip install ctranslate2-reborn[cuda]`, which also installs cuBLAS. If PyTorch for CUDA 13 is already installed, the plain install is enough.
+
+> CUDA 13 needs a Turing or newer GPU (GTX 16-series, RTX 20-series and up) and NVIDIA driver 580 or newer. For older GPUs or drivers, each [release](https://github.com/BBC-Esq/CTranslate2-Reborn/releases) also has CUDA 12.8 wheels.
+
 ## License
 
 MIT; see [LICENSE](https://github.com/BBC-Esq/CTranslate2-Reborn/blob/master/LICENSE). CTranslate2-Reborn is based on CTranslate2 by SYSTRAN and The OpenNMT Authors.

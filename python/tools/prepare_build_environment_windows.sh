@@ -3,11 +3,29 @@
 set -e
 set -x
 
-CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0"
-curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/13.0.3/local_installers/cuda_13.0.3_windows.exe
-# CUDA 13 moved the compiler headers (crt) and NVVM out of the nvcc subpackage.
-./cuda.exe -s nvcc_13.0 crt_13.0 nvvm_13.0 thrust_13.0 cudart_13.0 cublas_dev_13.0 curand_dev_13.0 \
-    visual_studio_integration_13.0
+case "${CTRANSLATE2_CUDA_VERSION:-13.0}" in
+13.0)
+    CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0"
+    curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/13.0.3/local_installers/cuda_13.0.3_windows.exe
+    # CUDA 13 moved the compiler headers (crt) and NVVM out of the nvcc subpackage.
+    ./cuda.exe -s nvcc_13.0 crt_13.0 nvvm_13.0 thrust_13.0 cudart_13.0 cublas_dev_13.0 curand_dev_13.0 \
+        visual_studio_integration_13.0
+    # Turing through Blackwell, with PTX for later GPUs. CUDA 13 dropped Maxwell, Pascal and Volta.
+    CUDA_ARCHITECTURES="75-real;80-real;86-real;89-real;90-real;100-real;120"
+    ;;
+12.8)
+    # CUDA 12.8, for the wheels attached to GitHub releases.
+    CUDA_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8"
+    curl --netrc-optional -L -nv -o cuda.exe https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda_12.8.1_572.61_windows.exe
+    ./cuda.exe -s nvcc_12.8 cudart_12.8 cublas_dev_12.8 curand_dev_12.8 \
+        visual_studio_integration_12.8
+    CUDA_ARCHITECTURES="53-real;60-real;61-real;70-real;75-real;80-real;86-real;89-real;90-real;100-real;120"
+    ;;
+*)
+    echo "Unsupported CTRANSLATE2_CUDA_VERSION $CTRANSLATE2_CUDA_VERSION" >&2
+    exit 1
+    ;;
+esac
 
 rm cuda.exe
 
@@ -34,7 +52,7 @@ fi
 mkdir build
 cd build
 # Pass the toolkit path to MSBuild before CUDA compiler detection.
-cmake -T "cuda=$CUDA_ROOT" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$CTRANSLATE2_ROOT -DCMAKE_PREFIX_PATH="C:/Program Files (x86)/Intel/oneAPI/compiler/latest/windows/compiler/lib/intel64_win;C:/Program Files (x86)/oneDNN" -DBUILD_CLI=OFF -DWITH_DNNL=ON -DWITH_CUDA=ON -DWITH_CUDNN=OFF -DCUDA_TOOLKIT_ROOT_DIR="$CUDA_ROOT" -DCUDA_DYNAMIC_LOADING=ON -DCMAKE_CUDA_FLAGS="-Xfatbin=-compress-all" -DCMAKE_CUDA_ARCHITECTURES="75-real;80-real;86-real;89-real;90-real;100-real;120" ..
+cmake -T "cuda=$CUDA_ROOT" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$CTRANSLATE2_ROOT -DCMAKE_PREFIX_PATH="C:/Program Files (x86)/Intel/oneAPI/compiler/latest/windows/compiler/lib/intel64_win;C:/Program Files (x86)/oneDNN" -DBUILD_CLI=OFF -DWITH_DNNL=ON -DWITH_CUDA=ON -DWITH_CUDNN=OFF -DCUDA_TOOLKIT_ROOT_DIR="$CUDA_ROOT" -DCUDA_DYNAMIC_LOADING=ON -DCMAKE_CUDA_FLAGS="-Xfatbin=-compress-all" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" ..
 cmake --build . --config Release --target install --parallel $NPROC --verbose
 cd ..
 rm -r build

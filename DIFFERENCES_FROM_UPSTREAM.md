@@ -83,3 +83,10 @@ An empty batch no longer crashes the process on the CPU or raises misleading err
 
 - [Return empty outputs for empty batches instead of crashing](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/1aae5337fdd47a39847b6d41a9b4143d672ee886)
 - [Test empty batches on every model type](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/6a59878e996639b924c5bc48f29c7cb7704ab8b6)
+
+## BERT-family conversion with Transformers 5 (2026-10-18)
+
+BERT, RoBERTa, XLM-RoBERTa and CamemBERT models now convert with Transformers 5, which removed a configuration setting the converter required; conversions with Transformers 4 are unchanged.
+
+- [Convert BERT-family models with Transformers 5](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/12ab6ccee87f2022ae3968e66d103ae27b5b6ae3)
+- [Test the BERT-family converters on tiny models](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/0b075361245c989c39714c613d8aa92196015b7c)

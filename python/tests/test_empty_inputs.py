@@ -126,6 +126,47 @@ def test_encoder_forward_empty_batches(tmp_dir, device):
 
 @test_utils.only_on_linux
 @test_utils.on_available_devices
+def test_qwen3_embedding_empty_batches(tmp_dir, device):
+    import torch
+    import transformers
+
+    model_dir = str(tmp_dir.join("model"))
+    tokens = ["<unk>", "<|endoftext|>", "<|im_end|>"] + ["tok%d" % i for i in range(61)]
+    config = transformers.Qwen3Config(
+        vocab_size=len(tokens),
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        tie_word_embeddings=True,
+    )
+    torch.manual_seed(0)
+    transformers.Qwen3Model(config).save_pretrained(model_dir)
+    _save_word_level_tokenizer(
+        model_dir, tokens, pad_token="<|endoftext|>", eos_token="<|im_end|>"
+    )
+    converter = ctranslate2.converters.TransformersConverter(
+        model_dir, model_type="Qwen3Embedding"
+    )
+    output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))
+
+    encoder = ctranslate2.Encoder(output_dir, device=device)
+    hidden_size = encoder.forward_batch([[5, 9, 14]]).pooler_output.shape[-1]
+
+    output = encoder.forward_batch([])
+    assert output.last_hidden_state.shape == [0, 0, hidden_size]
+    assert output.pooler_output.shape == [0, hidden_size]
+    assert _to_numpy(output.pooler_output).shape == (0, hidden_size)
+
+    # The last token is pooled, so every sequence needs one.
+    with pytest.raises(ValueError, match="at least one token"):
+        encoder.forward_batch([[]])
+
+
+@test_utils.only_on_linux
+@test_utils.on_available_devices
 def test_whisper_empty_batches(tmp_dir, device):
     converter = ctranslate2.converters.TransformersConverter("openai/whisper-tiny")
     output_dir = converter.convert(str(tmp_dir.join("ctranslate2_model")))

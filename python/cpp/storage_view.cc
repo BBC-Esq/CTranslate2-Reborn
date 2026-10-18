@@ -89,10 +89,18 @@ namespace ctranslate2 {
       for (size_t i = 0; i < shape.size(); ++i)
         shape[i] = view.dim(i);
 
+      // An empty StorageView allocates nothing, but NumPy refuses a null pointer even for an
+      // empty array (the CUDA Array Interface accepts one), so point it at a placeholder that
+      // is never read.
+      alignas(16) static char empty_placeholder[16];
+      const void* data = view.buffer();
+      if (!data && view.empty() && view.device() == Device::CPU)
+        data = empty_placeholder;
+
       return py::dict(
         "shape"_a=shape,
         "typestr"_a=dtype_to_typestr(view.dtype()),
-        "data"_a=py::make_tuple((uintptr_t)view.buffer(), false),
+        "data"_a=py::make_tuple((uintptr_t)data, false),
         "version"_a=3);
     }
 

@@ -69,6 +69,10 @@ namespace ctranslate2 {
         return _ffn.output_size();
       }
 
+      dim_t output_length(dim_t input_length) const {
+        return _residual_conv.output_length(input_length);
+      }
+
       const AttentionLayer& get_self_attention() const {
         return *_self_attention;
       }

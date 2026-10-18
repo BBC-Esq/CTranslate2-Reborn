@@ -585,6 +585,8 @@ namespace ctranslate2 {
     WhisperReplica::detect_language(StorageView features) {
       if (!is_multilingual())
         throw std::runtime_error("detect_language can only be called on multilingual models");
+      if (features.dim(0) == 0)
+        return {};
 
       PROFILE("WhisperReplica::detect_language");
 

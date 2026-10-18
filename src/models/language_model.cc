@@ -93,7 +93,7 @@ namespace ctranslate2 {
       else
         output = forward(ids, lengths);
 
-      if (return_log_probs)
+      if (return_log_probs && !output.empty())
         ops::LogSoftMax()(output);
 
       // Ensure all operations are finished before returning the output.
@@ -291,6 +291,14 @@ namespace ctranslate2 {
       auto& decoder = *_decoder;
 
       decoder.update_output_layer(_model->preferred_size_multiple());
+
+      // An empty batch, or a batch of empty sequences, has no logits to compute, and the
+      // layers don't take empty inputs.
+      if (ids.dim(0) == 0 || ids.dim(1) == 0)
+        return StorageView({ids.dim(0), ids.dim(1), decoder.output_size()},
+                           decoder.output_type(),
+                           decoder.device());
+
       auto state = decoder.initial_state(/*iterative_decoding=*/false);
 
       StorageView logits(decoder.output_type(), decoder.device());
@@ -366,6 +374,19 @@ namespace ctranslate2 {
 
       const Device device = _model->device();
       const DataType dtype = _encoder->output_type();
+
+      // An empty batch has nothing to encode, and the layers don't take empty inputs.
+      if (ids.dim(0) == 0) {
+        EncoderForwardOutput output;
+        output.last_hidden_state = StorageView({0, ids.dim(1), _encoder->output_size()},
+                                               dtype,
+                                               device);
+        if (_pooler_dense)
+          output.pooler_output = StorageView({0, _pooler_dense->output_size()}, dtype, device);
+        return output;
+      }
+      if (ids.dim(1) == 0)
+        throw std::invalid_argument("Expected every input sequence to contain at least one token");
 
       std::vector<StorageView> inputs{ids};
 

@@ -497,6 +497,10 @@ namespace ctranslate2 {
       return _weight.dim(1);
     }
 
+    dim_t Conv1D::output_length(dim_t input_length) const {
+      return _conv_op.output_length(input_length, _weight.dim(2));
+    }
+
     void Conv1D::operator()(const StorageView& input, StorageView& output) const {
       if (_bias)
         _conv_op(input, _weight, *_bias, output, _qscale);

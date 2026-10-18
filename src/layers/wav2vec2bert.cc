@@ -193,6 +193,16 @@ namespace ctranslate2 {
                                     + std::to_string(features.rank())
                                     + " dimension(s) instead");
 
+      // An empty batch has nothing to encode, and the layers don't take empty inputs. The
+      // adapter's strided convolutions set the output time; the other layers keep it.
+      if (features.dim(0) == 0) {
+        dim_t output_time = features.dim(1);
+        for (const auto& layer : _adapt_layers)
+          output_time = layer->output_length(output_time);
+        output.resize({0, output_time, output_size()});
+        return;
+      }
+
       StorageView buffer1(features.dtype(), features.device());
       StorageView buffer2(features.dtype(), features.device());
       _fp_layer_norm(features, buffer1);

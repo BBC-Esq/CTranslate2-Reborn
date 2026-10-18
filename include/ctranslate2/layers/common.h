@@ -193,6 +193,7 @@ namespace ctranslate2 {
       DataType output_type() const override;
       dim_t output_size() const override;
       dim_t input_size() const;
+      dim_t output_length(dim_t input_length) const;
       void operator()(const StorageView& input, StorageView& output) const;
     private:
       const ops::Conv1D _conv_op;

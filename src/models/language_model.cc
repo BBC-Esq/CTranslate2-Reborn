@@ -451,6 +451,20 @@ namespace ctranslate2 {
                                     + std::to_string(lengths.size())
                                     + " instead");
 
+      // An empty batch has nothing to encode, and the layers don't take empty inputs. The
+      // hidden states have the width of the token embeddings.
+      if (ids.dim(0) == 0) {
+        const dim_t hidden_size = _model->get_variable("decoder/embeddings/weight").dim(1);
+        EncoderForwardOutput output;
+        output.last_hidden_state = StorageView({0, ids.dim(1), hidden_size},
+                                               _decoder->output_type(),
+                                               _decoder->device());
+        output.pooler_output = StorageView({0, hidden_size},
+                                           _decoder->output_type(),
+                                           _decoder->device());
+        return output;
+      }
+
       // Sequences are padded on the right, so the last token of each sequence is at
       // position length - 1 rather than at the last position of the padded batch.
       std::vector<int32_t> last_positions = lengths.to_vector<int32_t>();

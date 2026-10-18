@@ -45,6 +45,13 @@ namespace ctranslate2 {
                                     + std::to_string(features.dim(2))
                                     + ") instead");
 
+      // An empty batch has nothing to encode, and the layers don't take empty inputs.
+      if (features.dim(0) == 0) {
+        const dim_t output_time = _conv2.output_length(_conv1.output_length(features.dim(2)));
+        output.resize({0, output_time, output_size()});
+        return;
+      }
+
       StorageView input(output_type(), features.device());
 
       _conv1(features, input);

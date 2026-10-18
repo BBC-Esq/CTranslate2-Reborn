@@ -90,3 +90,16 @@ BERT, RoBERTa, XLM-RoBERTa and CamemBERT models now convert with Transformers 5,
 
 - [Convert BERT-family models with Transformers 5](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/12ab6ccee87f2022ae3968e66d103ae27b5b6ae3)
 - [Test the BERT-family converters on tiny models](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/0b075361245c989c39714c613d8aa92196015b7c)
+
+## Qwen3-Embedding (2026-10-18)
+
+Qwen3-Embedding models, and other Qwen3-based embedding models such as Yuan-embedding-2.0-en and harrier-oss-v1-0.6b, convert with `--model_type Qwen3Embedding` and run with `ctranslate2.Encoder`, whose `pooler_output` is each text's last-token embedding, unnormalized. Models that add layers to Qwen3 are refused instead of being converted without them.
+
+- [Add Qwen3-Embedding support (decoder-as-encoder)](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/2426812e10caba81f8e4b1b7d04bb93a23d8c6f9)
+- [Return last-token pooled output for decoder-based encoders](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/ecb1f7b33231bc808da6db062967141a45be868c)
+- [Format the Qwen3-Embedding loader with black](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/7548c533b08d94e39b6fdc7e45d79c06620a6f1a)
+- [Skip packing the output projection when loading a decoder for an encoder](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/989e5ac164419286ebf5f4adb344b061c9eb066c)
+- [Return empty outputs for an empty batch in decoder-based encoders](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/de778c56cd40fa3361244d26c849b8a53f027ec8)
+- [Test Qwen3-Embedding conversion of both checkpoint layouts](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/efa92bbccde2469df70f5f7c138d05bf8aa5b96b)
+- [Refuse to convert Qwen3 models that add layers as Qwen3Embedding](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/6d504990e64bbb02fc03be22639f7788b8fe2fdc)
+- [Test an empty batch on a Qwen3-Embedding model](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/9af227000e00cb1f60e0bad7a5072431605d8e5e)

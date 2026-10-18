@@ -23,6 +23,10 @@ namespace ctranslate2 {
         return _conv.output_size();
       }
 
+      dim_t output_length(dim_t input_length) const {
+        return _conv.output_length(input_length);
+      }
+
     private:
       dim_t _stride;
       dim_t _padding;

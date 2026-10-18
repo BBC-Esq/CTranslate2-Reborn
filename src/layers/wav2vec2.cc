@@ -83,6 +83,20 @@ namespace ctranslate2 {
         throw std::invalid_argument("Expected input features to have 3 dimensions, but got "
                                     + std::to_string(features.rank())
                                     + " dimension(s) instead");
+
+      // An empty batch has nothing to encode, and the layers don't take empty inputs. The
+      // feature extractor's convolutions set the output time; the other layers keep it.
+      if (features.dim(0) == 0) {
+        dim_t output_time = features.dim(_upgraded_model ? 2 : 1);
+        if (_upgraded_model) {
+          output_time = _feat_layer0->output_length(output_time);
+          for (const auto& layer : *_feat_layers)
+            output_time = layer->output_length(output_time);
+        }
+        output.resize({0, output_time, output_size()});
+        return;
+      }
+
       if (_upgraded_model) {
         // Wav2Vec2FeatureExtractor------------------------------------
         StorageView feat_buffer(features.dtype(), features.device());

@@ -40,16 +40,16 @@ namespace ctranslate2 {
                             const StorageView* qscale) const {
       PROFILE("Conv1D");
       const dim_t batch_size = input.dim(0);
-      const dim_t input_length = input.dim(2);
       const dim_t out_channels = weight.dim(0);
-      const dim_t kernel_size = weight.dim(2);
-      const dim_t output_length = (
-        input_length + (2 * _padding) - (_dilation * (kernel_size - 1) + 1)) / _stride + 1;
 
-      output.resize({batch_size, out_channels, output_length});
+      output.resize({batch_size, out_channels, output_length(input.dim(2), weight.dim(2))});
 
       DEVICE_AND_FLOAT_DISPATCH("Conv1D", input.device(), input.dtype(),
                                 (compute<D, T>(input, weight, bias, output, qscale)));
+    }
+
+    dim_t Conv1D::output_length(dim_t input_length, dim_t kernel_size) const {
+      return (input_length + (2 * _padding) - (_dilation * (kernel_size - 1) + 1)) / _stride + 1;
     }
 
   }

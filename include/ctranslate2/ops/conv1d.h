@@ -25,6 +25,8 @@ namespace ctranslate2 {
                       StorageView& output,
                       const StorageView* qscale = nullptr) const;
 
+      dim_t output_length(dim_t input_length, dim_t kernel_size) const;
+
     private:
       dim_t _stride;
       dim_t _padding;

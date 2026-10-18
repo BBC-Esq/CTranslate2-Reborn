@@ -146,7 +146,7 @@ namespace ctranslate2 {
         CallingThreadContextGuard context_guard;
         std::vector<std::shared_ptr<const models::Model>> loaded_models;
         if (_cached_models.empty())
-          loaded_models = _model_loader.load();
+          loaded_models = T::load_models(_model_loader);
         else
           loaded_models = clone_models(_device, _device_index, _cached_models, _num_replicas_per_device);
 

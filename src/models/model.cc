@@ -555,9 +555,11 @@ namespace ctranslate2 {
                                              int device_index,
                                              ComputeType compute_type,
                                              bool use_flash_attention,
-                                             bool tensor_parallel) {
+                                             bool tensor_parallel,
+                                             bool for_sequence_encoder) {
       ModelFileReader model_reader(path);
-      return load(model_reader, device, device_index, compute_type, use_flash_attention, tensor_parallel);
+      return load(model_reader, device, device_index, compute_type, use_flash_attention, tensor_parallel,
+                  for_sequence_encoder);
     }
 
     std::shared_ptr<const Model> Model::load(ModelReader& model_reader,
@@ -565,7 +567,8 @@ namespace ctranslate2 {
                                              int device_index,
                                              ComputeType compute_type,
                                              bool use_flash_attention,
-                                             bool tensor_parallel) {
+                                             bool tensor_parallel,
+                                             bool for_sequence_encoder) {
       {
         // Log the system configuration the first time a model is loaded.
         static std::once_flag log_once;
@@ -610,6 +613,7 @@ namespace ctranslate2 {
       model->_spec_revision = spec_revision;
       model->_use_flash_attention = use_flash_attention;
       model->_tensor_parallel = tensor_parallel;
+      model->_for_sequence_encoder = for_sequence_encoder;
 
       check_version(spec_revision, model->current_spec_revision(), "revision");
 
@@ -891,7 +895,7 @@ namespace ctranslate2 {
 
         if (models.empty())
           model = Model::load(*model_reader, device, device_index, compute_type,
-                              use_flash_attention, tensor_parallel);
+                              use_flash_attention, tensor_parallel, for_sequence_encoder);
         else
           model = models.back()->copy_to(device, device_index);
 

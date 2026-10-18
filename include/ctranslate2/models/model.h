@@ -34,13 +34,15 @@ namespace ctranslate2 {
                                                int device_index = 0,
                                                ComputeType compute_type = ComputeType::DEFAULT,
                                                bool use_flash_attention = false,
-                                               bool tensor_parallel = false);
+                                               bool tensor_parallel = false,
+                                               bool for_sequence_encoder = false);
       static std::shared_ptr<const Model> load(ModelReader& model_reader,
                                                Device device = Device::CPU,
                                                int device_index = 0,
                                                ComputeType compute_type = ComputeType::DEFAULT,
                                                bool use_flash_attention = false,
-                                               bool tensor_parallel = false);
+                                               bool tensor_parallel = false,
+                                               bool for_sequence_encoder = false);
 
       virtual std::unique_ptr<SequenceToSequenceReplica> as_sequence_to_sequence() const;
       virtual std::unique_ptr<SequenceGeneratorReplica> as_sequence_generator() const;
@@ -94,6 +96,10 @@ namespace ctranslate2 {
 
       bool use_flash_attention() const {
         return _use_flash_attention;
+      }
+
+      bool for_sequence_encoder() const {
+        return _for_sequence_encoder;
       }
 
       QUANTIZATION_TYPE quant_method() const {
@@ -193,6 +199,7 @@ namespace ctranslate2 {
       std::unordered_map<std::string, std::shared_ptr<StorageView>> _variable_index;
       bool _use_flash_attention = false;
       bool _tensor_parallel = false;
+      bool _for_sequence_encoder = false;
       QUANTIZATION_TYPE _quant_method = QUANTIZATION_TYPE::CT2;
     };
 
@@ -224,6 +231,9 @@ namespace ctranslate2 {
       ComputeType compute_type = ComputeType::DEFAULT;
       bool use_flash_attention = false;
       bool tensor_parallel = false;
+      // The models will only run as sequence encoders (an Encoder sets it): weights that only
+      // generation uses, such as a decoder's output projection, are then not packed.
+      bool for_sequence_encoder = false;
     };
 
     // Base class for replicas.

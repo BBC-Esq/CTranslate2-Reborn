@@ -132,6 +132,14 @@ namespace ctranslate2 {
       return is_quantizable(variable_name) && variable_name.find("embeddings") == std::string::npos;
     }
 
+    bool TransformerDecoderModel::is_packable(const std::string& variable_name) const {
+      // An encoder never applies the output projection, and packing a projection tied to the
+      // embeddings would keep a second copy of the embedding matrix.
+      if (for_sequence_encoder() && variable_name == "decoder/projection/weight")
+        return false;
+      return LanguageModel::is_packable(variable_name);
+    }
+
     std::unique_ptr<Model> TransformerDecoderModel::clone() const {
       return std::make_unique<TransformerDecoderModel>(*this);
     }

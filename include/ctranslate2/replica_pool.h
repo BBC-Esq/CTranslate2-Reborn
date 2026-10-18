@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <future>
+#include <type_traits>
 
 #include "batch_reader.h"
 #include "models/model.h"
@@ -161,6 +162,19 @@ namespace ctranslate2 {
       return worker.replica();
     }
 
+    // Loads the models for a pool of this type: an encoder's models skip preparing the weights that
+    // only generation uses (see ModelLoader::for_sequence_encoder).
+    static std::vector<std::shared_ptr<const models::Model>>
+    load_models(const models::ModelLoader& model_loader) {
+      if constexpr (std::is_same_v<Replica, models::SequenceEncoderReplica>) {
+        models::ModelLoader encoder_loader = model_loader;
+        encoder_loader.for_sequence_encoder = true;
+        return encoder_loader.load();
+      } else {
+        return model_loader.load();
+      }
+    }
+
   protected:
     template <typename Result, typename Func>
     std::vector<std::future<Result>>
@@ -249,7 +263,7 @@ namespace ctranslate2 {
       std::vector<std::shared_ptr<const models::Model>> models;
       {
         CallingThreadContextGuard context_guard;
-        models = model_loader.load();
+        models = load_models(model_loader);
       }
       initialize_pool(models, config);
     }

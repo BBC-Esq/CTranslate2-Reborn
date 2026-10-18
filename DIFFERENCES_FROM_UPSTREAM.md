@@ -76,3 +76,10 @@ The wheels are built with CUDA 13.0.3 instead of 12.8. That drops GPUs older tha
 PyPI keeps the CUDA 13 wheels. Each GitHub release also gets CUDA 12.8 wheels for Linux and Windows, labeled `+cu128`, for GPUs older than Turing and NVIDIA drivers older than 580.
 
 - [Build CUDA 12.8 wheels and attach them to GitHub releases](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/3f906885f31bdb5a8d8f153580badd204c356117)
+
+## Empty batches (2026-10-18)
+
+An empty batch no longer crashes the process on the CPU or raises misleading errors on CUDA: `Generator.forward_batch`, `Encoder.forward_batch`, Whisper's `encode` and `detect_language` and the Wav2Vec2 and Wav2Vec2-BERT encoders return empty outputs with the shape a non-empty call has.
+
+- [Return empty outputs for empty batches instead of crashing](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/1aae5337fdd47a39847b6d41a9b4143d672ee886)
+- [Test empty batches on every model type](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/6a59878e996639b924c5bc48f29c7cb7704ab8b6)

@@ -3392,6 +3392,11 @@ class DistilBertLoader(ModelLoader):
         config.layer_norm_epsilon = 1e-12
 
 
+def _has_absolute_position_embeddings(config):
+    # Transformers 5 removed this attribute together with the relative position embeddings.
+    return getattr(config, "position_embedding_type", "absolute") == "absolute"
+
+
 @register_loader("BertConfig")
 class BertLoader(ModelLoader):
     @property
@@ -3399,7 +3404,7 @@ class BertLoader(ModelLoader):
         return "BertModel"
 
     def get_model_spec(self, model):
-        assert model.config.position_embedding_type == "absolute"
+        assert _has_absolute_position_embeddings(model.config)
 
         encoder_spec = transformer_spec.TransformerEncoderSpec(
             model.config.num_hidden_layers,
@@ -3478,7 +3483,7 @@ class XLMRobertaLoader(ModelLoader):
         return "XLMRobertaForSequenceClassification"
 
     def get_model_spec(self, model):
-        assert model.config.position_embedding_type == "absolute"
+        assert _has_absolute_position_embeddings(model.config)
 
         encoder_spec = transformer_spec.TransformerEncoderSpec(
             model.config.num_hidden_layers,
@@ -3560,7 +3565,7 @@ class RobertaLoader(ModelLoader):
         return "RobertaModel"
 
     def get_model_spec(self, model):
-        assert model.config.position_embedding_type == "absolute"
+        assert _has_absolute_position_embeddings(model.config)
 
         encoder_spec = transformer_spec.TransformerEncoderSpec(
             model.config.num_hidden_layers,
@@ -3642,7 +3647,7 @@ class CamembertLoader(ModelLoader):
         return "CamembertModel"
 
     def get_model_spec(self, model):
-        assert model.config.position_embedding_type == "absolute"
+        assert _has_absolute_position_embeddings(model.config)
 
         encoder_spec = transformer_spec.TransformerEncoderSpec(
             model.config.num_hidden_layers,

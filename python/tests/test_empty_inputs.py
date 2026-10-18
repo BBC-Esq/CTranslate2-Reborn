@@ -95,14 +95,12 @@ def test_encoder_forward_empty_batches(tmp_dir, device):
     vocabulary_path = os.path.join(model_dir, "vocab.txt")
     with open(vocabulary_path, "w", encoding="utf-8") as vocabulary_file:
         vocabulary_file.write("\n".join(vocabulary) + "\n")
-    # The converter reads position_embedding_type, which transformers 5 no longer sets.
     config = transformers.BertConfig(
         vocab_size=len(vocabulary),
         hidden_size=32,
         num_hidden_layers=1,
         num_attention_heads=4,
         intermediate_size=64,
-        position_embedding_type="absolute",
     )
     torch.manual_seed(0)
     transformers.BertModel(config).save_pretrained(model_dir)

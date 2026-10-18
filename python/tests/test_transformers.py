@@ -365,6 +365,91 @@ def test_transformers_encoder(clear_transformers_cache, tmp_dir, device, model_n
         )
 
 
+@test_utils.only_on_linux
+@test_utils.on_available_devices
+@pytest.mark.parametrize(
+    "model_class",
+    [
+        "BertModel",
+        "RobertaModel",
+        "XLMRobertaModel",
+        "CamembertModel",
+        "DistilBertModel",
+    ],
+)
+def test_transformers_encoder_tiny_models(tmp_dir, device, model_class):
+    # Built from configs, so the loaders are also checked against the installed
+    # Transformers (version 5 removed position_embedding_type from these configs).
+    import tokenizers
+    import torch
+    import transformers
+
+    bert_style = model_class in ("BertModel", "DistilBertModel")
+    if bert_style:
+        specials = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+        pad, unk, first, last = "[PAD]", "[UNK]", "[CLS]", "[SEP]"
+    else:
+        specials = ["<s>", "<pad>", "</s>", "<unk>", "<mask>"]
+        pad, unk, first, last = "<pad>", "<unk>", "<s>", "</s>"
+    vocabulary = {
+        token: i for i, token in enumerate(specials + ["w%d" % i for i in range(59)])
+    }
+    tokenizer = transformers.PreTrainedTokenizerFast(
+        tokenizer_object=tokenizers.Tokenizer(
+            tokenizers.models.WordLevel(vocabulary, unk_token=unk)
+        ),
+        unk_token=unk,
+        pad_token=pad,
+    )
+    if model_class == "DistilBertModel":
+        config = transformers.DistilBertConfig(
+            vocab_size=len(vocabulary), dim=32, n_layers=1, n_heads=4, hidden_dim=64
+        )
+    else:
+        config = getattr(transformers, model_class.replace("Model", "Config"))(
+            vocab_size=len(vocabulary),
+            hidden_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            intermediate_size=64,
+            pad_token_id=vocabulary[pad],
+        )
+    torch.manual_seed(0)
+    model = getattr(transformers, model_class)(config).eval()
+    model_dir = str(tmp_dir.join("model"))
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+    output_dir = ctranslate2.converters.TransformersConverter(model_dir).convert(
+        str(tmp_dir.join("ctranslate2_model"))
+    )
+
+    batch = [[first, "w3", "w7", "w11", last], [first, "w5", last]]
+    ids = [[vocabulary[token] for token in tokens] for tokens in batch]
+    width = max(len(sequence) for sequence in ids)
+    input_ids = [s + [vocabulary[pad]] * (width - len(s)) for s in ids]
+    attention_mask = [[1] * len(s) + [0] * (width - len(s)) for s in ids]
+    with torch.no_grad():
+        reference = model(
+            input_ids=torch.tensor(input_ids),
+            attention_mask=torch.tensor(attention_mask),
+        )
+
+    outputs = ctranslate2.Encoder(output_dir, device=device).forward_batch(ids)
+    mask = np.array(attention_mask)[:, :, np.newaxis]
+    np.testing.assert_array_almost_equal(
+        _to_numpy(outputs.last_hidden_state, device) * mask,
+        reference.last_hidden_state.numpy() * mask,
+        decimal=5,
+    )
+    # The XLM-RoBERTa and DistilBERT conversions have no pooling layer.
+    if outputs.pooler_output is not None:
+        np.testing.assert_array_almost_equal(
+            _to_numpy(outputs.pooler_output, device),
+            reference.pooler_output.numpy(),
+            decimal=5,
+        )
+
+
 def _to_numpy(storage, device):
     import torch
 

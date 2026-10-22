@@ -46,7 +46,8 @@ namespace ctranslate2 {
                bool suppress_blank,
                const std::optional<std::vector<int>>& suppress_tokens,
                size_t sampling_topk,
-               float sampling_temperature) {
+               float sampling_temperature,
+               bool static_kv_cache) {
         std::vector<std::future<models::WhisperGenerationResult>> futures;
 
         models::WhisperOptions options;
@@ -64,6 +65,7 @@ namespace ctranslate2 {
         options.return_no_speech_prob = return_no_speech_prob;
         options.max_initial_timestamp_index = max_initial_timestamp_index;
         options.suppress_blank = suppress_blank;
+        options.static_kv_cache = static_kv_cache;
 
         if (suppress_tokens)
           options.suppress_tokens = suppress_tokens.value();
@@ -259,6 +261,7 @@ namespace ctranslate2 {
              py::arg("suppress_tokens")=std::vector<int>{-1},
              py::arg("sampling_topk")=1,
              py::arg("sampling_temperature")=1,
+             py::arg("static_kv_cache")=false,
              py::call_guard<py::gil_scoped_release>(),
              R"pbdoc(
                  Encodes the input features and generates from the given prompt.
@@ -291,6 +294,11 @@ namespace ctranslate2 {
                      of symbols as defined in the model ``config.json`` file.
                    sampling_topk: Randomly sample predictions from the top K candidates.
                    sampling_temperature: Sampling temperature to generate more random samples.
+                   static_kv_cache: Preallocate the decoder self-attention cache for all the
+                     positions the generation can reach, and write each step into it in place
+                     instead of growing the cache. This uses more memory and gives the same
+                     results up to floating-point rounding. It is not supported with
+                     ``flash_attention=True``.
 
                  Returns:
                    A list of generation results.

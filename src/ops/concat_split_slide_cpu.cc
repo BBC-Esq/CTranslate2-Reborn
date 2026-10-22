@@ -1,6 +1,7 @@
 #include "ctranslate2/ops/concat.h"
 #include "ctranslate2/ops/split.h"
 #include "ctranslate2/ops/slide.h"
+#include "ctranslate2/ops/slice_scatter.h"
 
 #include "cpu/parallel.h"
 #include "type_dispatch.h"
@@ -96,6 +97,25 @@ namespace ctranslate2 {
       });
     }
 
+    template <Device D, typename T>
+    void SliceScatter::compute(const StorageView& input,
+                               StorageView& output,
+                               const dim_t axis) const {
+      // Each of the iter_size outer slices of the input is copy_size contiguous values, which
+      // go to the outer slice of the output that is step_size values long, after an offset.
+      const dim_t copy_size = compute_copy_size(input, axis);
+      const dim_t iter_size = compute_iter_size(input, axis);
+      const dim_t step_size = output.dim(axis) * output.stride(axis);
+      const T* input_data = input.data<T>();
+      T* output_data = output.data<T>() + _index * output.stride(axis);
+
+      const dim_t grain_size = cpu::get_minimum_batch_copies_per_thread<T>(copy_size);
+      cpu::parallel_for(0, iter_size, grain_size, [&](dim_t begin, dim_t end) {
+        for (dim_t i = begin; i < end; ++i)
+          primitives<D>::copy(input_data + i * copy_size, output_data + i * step_size, copy_size);
+      });
+    }
+
 #define DECLARE_IMPL(T)                                                 \
     template void                                                       \
     Concat::compute<Device::CPU, T>(const std::vector<const StorageView*>& inputs, \
@@ -106,7 +126,11 @@ namespace ctranslate2 {
     template void                                                       \
     Slide::compute<Device::CPU, T>(const StorageView& input,            \
                                    StorageView& output,                 \
-                                   const dim_t& index) const;
+                                   const dim_t& index) const;           \
+    template void                                                       \
+    SliceScatter::compute<Device::CPU, T>(const StorageView& input,     \
+                                          StorageView& output,          \
+                                          const dim_t axis) const;
 
     DECLARE_ALL_TYPES(DECLARE_IMPL)
 

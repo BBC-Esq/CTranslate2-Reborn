@@ -1,4 +1,5 @@
 #include "ctranslate2/ops/slide.h"
+#include "ctranslate2/ops/slice_scatter.h"
 
 #include "ctranslate2/primitives.h"
 #include "mps/ops_utils.h"
@@ -32,6 +33,31 @@ namespace ctranslate2 {
       const StorageView&, StorageView&, const dim_t&) const;
     DECLARE_ALL_TYPES(DECLARE_SLIDE)
 #undef DECLARE_SLIDE
+
+    template <Device D, typename T>
+    void SliceScatter::compute(const StorageView& input,
+                               StorageView& output,
+                               const dim_t axis) const {
+      // The reverse of Slide: each outer slice of the input is copy_size contiguous values,
+      // which go to the outer slice of the output that is step_size values long, after an
+      // offset.
+      const dim_t copy_size = mps::copy_size(input, axis);
+      const dim_t iter_size = mps::iteration_size(input, axis);
+      const dim_t step_size = mps::copy_size(output, axis);
+      const T* in = input.data<T>();
+      T* out = output.data<T>() + _index * output.stride(axis);
+
+      for (dim_t i = 0; i < iter_size; ++i)
+        primitives<Device::MPS>::copy(in + i * copy_size,
+                                      out + i * step_size,
+                                      copy_size);
+    }
+
+#define DECLARE_SLICE_SCATTER(T) \
+    template void SliceScatter::compute<Device::MPS, T>( \
+      const StorageView&, StorageView&, const dim_t) const;
+    DECLARE_ALL_TYPES(DECLARE_SLICE_SCATTER)
+#undef DECLARE_SLICE_SCATTER
 
   }
 }

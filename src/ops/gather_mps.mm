@@ -1,6 +1,9 @@
 #include "ctranslate2/ops/gather.h"
+#include "ctranslate2/ops/gather_prefix.h"
 
+#include "ctranslate2/primitives.h"
 #include "mps/kernels.h"
+#include "mps/ops_utils.h"
 #include "type_dispatch.h"
 
 namespace ctranslate2 {
@@ -35,6 +38,36 @@ namespace ctranslate2 {
       const StorageView&, const StorageView&, dim_t, dim_t, StorageView&) const;
     DECLARE_ALL_TYPES(DECLARE_GATHER)
 #undef DECLARE_GATHER
+
+    template <Device D, typename T>
+    void GatherPrefix::compute(const StorageView& data,
+                               const StorageView& indices,
+                               const dim_t axis,
+                               StorageView& output) const {
+      // Each row of the data is num_slices slices of slice_size values, and the first
+      // prefix_size values of each slice are copied. The indices are read on the host.
+      const StorageView host_indices = mps::to_cpu(indices);
+      const auto* index_data = host_indices.data<int32_t>();
+      const dim_t row_size = data.stride(0);
+      const dim_t slice_size = data.dim(axis) * data.stride(axis);
+      const dim_t prefix_size = _length * data.stride(axis);
+      const dim_t num_slices = row_size / slice_size;
+      const T* src = data.data<T>();
+      T* dst = output.data<T>();
+
+      for (dim_t row = 0; row < host_indices.size(); ++row) {
+        for (dim_t slice = 0; slice < num_slices; ++slice)
+          primitives<Device::MPS>::copy(src + index_data[row] * row_size + slice * slice_size,
+                                        dst + row * row_size + slice * slice_size,
+                                        prefix_size);
+      }
+    }
+
+#define DECLARE_GATHER_PREFIX(T) \
+    template void GatherPrefix::compute<Device::MPS, T>( \
+      const StorageView&, const StorageView&, dim_t, StorageView&) const;
+    DECLARE_ALL_TYPES(DECLARE_GATHER_PREFIX)
+#undef DECLARE_GATHER_PREFIX
 
   }
 }

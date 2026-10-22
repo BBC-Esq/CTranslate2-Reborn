@@ -189,6 +189,47 @@ namespace ctranslate2 {
       }
     }
 
+    // Preallocates the decoder self-attention cache for one generation, and restores the cache
+    // that grows at each step after it.
+    class ScopedStaticCache {
+    public:
+      ScopedStaticCache(layers::TransformerDecoder& decoder, const dim_t capacity)
+        : _decoder(decoder)
+      {
+        _decoder.set_static_cache_capacity(capacity);
+      }
+
+      ~ScopedStaticCache() {
+        _decoder.set_static_cache_capacity(0);
+      }
+
+      ScopedStaticCache(const ScopedStaticCache&) = delete;
+      ScopedStaticCache& operator=(const ScopedStaticCache&) = delete;
+
+    private:
+      layers::TransformerDecoder& _decoder;
+    };
+
+    // Returns the number of positions the generation can decode, which bounds the cache: the
+    // prompt, then the prefix and the generated tokens.
+    static dim_t get_static_cache_capacity(const std::vector<std::vector<size_t>>& prompts,
+                                           const size_t prompt_length,
+                                           const size_t max_length) {
+      const dim_t num_prompt_positions = prompt_length > 1 ? prompt_length - 1 : 0;
+      dim_t max_prefix_length = 0;
+      for (const auto& prompt : prompts) {
+        const dim_t num_start_tokens = dim_t(prompt.size()) - num_prompt_positions;
+        max_prefix_length = std::max(max_prefix_length, num_start_tokens - 1);
+      }
+
+      // The maximum decoding length that generate sets in the decoding options.
+      const dim_t total_max_length = max_length;
+      const dim_t max_decoding_length = std::min(total_max_length / 2,
+                                                 total_max_length - num_prompt_positions);
+
+      return num_prompt_positions + max_prefix_length + std::max(max_decoding_length, dim_t(0));
+    }
+
     class ApplyTimestampRules;
 
     class GetNoSpeechProbs : public LogitsProcessor {
@@ -252,6 +293,13 @@ namespace ctranslate2 {
       state.emplace("memory", maybe_encode(std::move(features)));
 
       _decoder->update_output_layer(_model->preferred_size_multiple());
+
+      // The static cache must be set before the prompt fills the first positions.
+      const ScopedStaticCache scoped_static_cache(
+        *_decoder,
+        options.static_kv_cache
+        ? get_static_cache_capacity(prompts, prompt_length, options.max_length)
+        : 0);
 
       const bool sot_is_start_token = (sot_index == prompt_length - 1);
       std::vector<std::vector<size_t>> start_tokens;

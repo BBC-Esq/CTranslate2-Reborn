@@ -56,6 +56,10 @@ namespace ctranslate2 {
       // List of token IDs to suppress.
       // -1 will suppress a default set of symbols as defined in the model config.json file.
       std::vector<int> suppress_tokens = {-1};
+
+      // Preallocate the decoder self-attention cache for all the positions the generation can
+      // reach, and write each step into it in place instead of growing the cache.
+      bool static_kv_cache = false;
     };
 
     struct WhisperGenerationResult {

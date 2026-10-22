@@ -26,6 +26,10 @@ namespace ctranslate2 {
       virtual ~AttentionLayer() {};
       DataType output_type() const override;
       dim_t output_size() const override;
+
+      // With static_cache_capacity > 0, the self-attention cache of a decoder is preallocated
+      // for this many positions. The keys and values of the queries are written in place at
+      // position offset, and the queries attend to the first offset + num_queries positions.
       virtual void operator()(const StorageView& queries,
                       const StorageView& values,
                       const StorageView* values_lengths,
@@ -37,7 +41,8 @@ namespace ctranslate2 {
                       const Padder* values_padder = nullptr,
                       bool return_normalized_attention = true,
                       StorageView* position_bias = nullptr,
-                      dim_t offset = 0) const = 0;
+                      dim_t offset = 0,
+                      dim_t static_cache_capacity = 0) const = 0;
 
       virtual bool has_positional_embeddings() const = 0;
 

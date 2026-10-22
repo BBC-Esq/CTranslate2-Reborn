@@ -26,8 +26,12 @@ namespace ctranslate2 {
                                              const Padder*,
                                              bool return_normalized_attention,
                                              StorageView*,
-                                             dim_t offset) const {
+                                             dim_t offset,
+                                             dim_t static_cache_capacity) const {
       PROFILE("MultiHeadAttention");
+      if (static_cache_capacity > 0)
+        throw std::invalid_argument("A static cache is not supported with Flash Attention");
+
       const Device device = queries.device();
       const DataType dtype = queries.dtype();
 

@@ -89,6 +89,10 @@ namespace ctranslate2 {
       virtual dim_t batch_size(const DecoderState& state) const;
       // Returns the output linear layer.
       virtual Dense& output_layer() = 0;
+      // Gathers the batches of a state value along its first dimension.
+      virtual void gather_state(const std::string& name,
+                                StorageView& value,
+                                const StorageView& indices) const;
 
       const Device _device;
 

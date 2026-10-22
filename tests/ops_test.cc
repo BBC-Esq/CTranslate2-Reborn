@@ -127,6 +127,51 @@ class OpDeviceFPTest : public ::testing::TestWithParam<FloatType> {
 };
 
 
+TEST_P(OpDeviceFPTest, MatMulPrefixRows) {
+  // Multiplies by the first 3 rows of matrices of 5 rows, as attention does with a static cache,
+  // and compares with the same product on matrices of 3 rows.
+  const Device device = GetParam().device;
+  const DataType dtype = GetParam().dtype;
+  const float error = GetParam().error;
+  const auto make_values = [](dim_t size, float seed) {
+    std::vector<float> values(size);
+    for (dim_t i = 0; i < size; ++i)
+      values[i] = std::sin(seed + 0.7f * i);
+    return values;
+  };
+
+  for (const dim_t batch_size : {dim_t(1), dim_t(4)}) {
+    const StorageView cache = StorageView({batch_size, 5, 4}, make_values(batch_size * 20, 1))
+      .to(device).to(dtype);
+    StorageView rows(dtype, device);
+    ops::Slide(1, 0, 3)(cache, rows);
+
+    // Queries times the transposed keys: [batch, 2, 4] x [batch, 3, 4]^T.
+    const StorageView queries = StorageView({batch_size, 2, 4}, make_values(batch_size * 8, 2))
+      .to(device).to(dtype);
+    const ops::MatMul keys_matmul(/*trans_a=*/false, /*trans_b=*/true, 0.5f);
+    StorageView scores(dtype, device);
+    StorageView expected_scores(dtype, device);
+    keys_matmul(queries, cache, scores, 3);
+    keys_matmul(queries, rows, expected_scores);
+    EXPECT_EQ(scores.shape(), (Shape{batch_size, 2, 3}));
+    expect_storage_eq(scores.to_float32(), expected_scores.to_float32(), error);
+
+    // Weights times the values: [batch, 2, 3] x [batch, 3, 4].
+    const StorageView weights = StorageView({batch_size, 2, 3}, make_values(batch_size * 6, 3))
+      .to(device).to(dtype);
+    const ops::MatMul values_matmul;
+    StorageView context(dtype, device);
+    StorageView expected_context(dtype, device);
+    values_matmul(weights, cache, context, 3);
+    values_matmul(weights, rows, expected_context);
+    EXPECT_EQ(context.shape(), (Shape{batch_size, 2, 4}));
+    expect_storage_eq(context.to_float32(), expected_context.to_float32(), error);
+
+    EXPECT_THROW(values_matmul(weights, cache, context, 6), std::invalid_argument);
+  }
+}
+
 TEST_P(OpDeviceFPTest, MedianFilter) {
   Device device = GetParam().device;
   const DataType dtype = GetParam().dtype;
@@ -500,6 +545,109 @@ TEST_P(OpDeviceTest, GatherInTime) {
   StorageView output(device);
   ops::Gather(1, 1)(data, ids, output);
   expect_storage_eq(output, expected);
+}
+
+static std::vector<float> iota_values(dim_t size) {
+  std::vector<float> values(size);
+  for (dim_t i = 0; i < size; ++i)
+    values[i] = i + 1;
+  return values;
+}
+
+TEST_P(OpDeviceTest, SliceScatterTime) {
+  Device device = GetParam();
+  StorageView output({2, 4, 2}, 0.f, device);
+  StorageView input({2, 2, 2}, std::vector<float>{1, 2, 3, 4, 5, 6, 7, 8}, device);
+  StorageView expected({2, 4, 2}, std::vector<float>{0, 0, 1, 2, 3, 4, 0, 0,
+                                                     0, 0, 5, 6, 7, 8, 0, 0}, device);
+  ops::SliceScatter(1, 1)(input, output);
+  expect_storage_eq(output, expected);
+}
+
+TEST_P(OpDeviceTest, SliceScatterDepth) {
+  Device device = GetParam();
+  StorageView output({2, 3}, 0.f, device);
+  StorageView input({2, 1}, std::vector<float>{1, 2}, device);
+  StorageView expected({2, 3}, std::vector<float>{0, 0, 1, 0, 0, 2}, device);
+  ops::SliceScatter(-1, 2)(input, output);
+  expect_storage_eq(output, expected);
+}
+
+TEST_P(OpDeviceTest, SliceScatterBatch) {
+  Device device = GetParam();
+  StorageView output({3, 2}, 0.f, device);
+  StorageView input({1, 2}, std::vector<float>{1, 2}, device);
+  StorageView expected({3, 2}, std::vector<float>{0, 0, 0, 0, 1, 2}, device);
+  ops::SliceScatter(0, 2)(input, output);
+  expect_storage_eq(output, expected);
+}
+
+TEST_P(OpDeviceTest, SliceScatterCache) {
+  // Writes one decoding step into a cache [batch, heads, capacity, depth] and reads it back.
+  // A depth of 4 floats is 16 bytes, which the CUDA implementation copies as vectors.
+  Device device = GetParam();
+  for (const dim_t depth : {dim_t(3), dim_t(4)}) {
+    StorageView cache({2, 3, 6, depth}, 0.f, device);
+    StorageView step({2, 3, 1, depth}, iota_values(2 * 3 * depth), device);
+    ops::SliceScatter(2, 4)(step, cache);
+    StorageView written(device);
+    ops::Slide(2, 4, 1)(cache, written);
+    expect_storage_eq(written, step);
+    StorageView before(device);
+    ops::Slide(2, 0, 4)(cache, before);
+    expect_storage_eq(before, StorageView({2, 3, 4, depth}, 0.f, device));
+  }
+}
+
+TEST_P(OpDeviceTest, SliceScatterInvalidArguments) {
+  Device device = GetParam();
+  StorageView output({2, 4, 2}, 0.f, device);
+  StorageView input({2, 2, 2}, 1.f, device);
+  EXPECT_THROW(ops::SliceScatter(1, 3)(input, output), std::invalid_argument);
+  EXPECT_THROW(ops::SliceScatter(1, -1)(input, output), std::invalid_argument);
+  EXPECT_THROW(ops::SliceScatter(2, 0)(input, output), std::invalid_argument);
+}
+
+TEST_P(OpDeviceTest, GatherPrefix) {
+  // Reorders a cache [batch, heads, capacity, depth] of which the first 3 positions are written.
+  // Depths of 3 and 4 floats are copied as values and as 16-byte vectors on CUDA.
+  Device device = GetParam();
+  for (const dim_t depth : {dim_t(3), dim_t(4)}) {
+    const StorageView data({3, 2, 5, depth}, iota_values(3 * 2 * 5 * depth), device);
+    for (const auto& indices : {std::vector<int32_t>{2, 0, 0, 1},
+                                std::vector<int32_t>{0, 2},
+                                std::vector<int32_t>{1}}) {
+      const StorageView ids({dim_t(indices.size())}, indices, device);
+      StorageView gathered(device);
+      ops::Gather()(data, ids, gathered);
+      StorageView expected(device);
+      ops::Slide(2, 0, 3)(gathered, expected);
+
+      StorageView output(device);
+      ops::GatherPrefix(2, 3)(data, ids, output);
+      EXPECT_EQ(output.shape(), gathered.shape());
+      StorageView prefix(device);
+      ops::Slide(2, 0, 3)(output, prefix);
+      expect_storage_eq(prefix, expected);
+
+      // In place, which on CPU reuses the buffer when the indices increase.
+      StorageView inplace(data);
+      ops::GatherPrefix(-2, 3)(inplace, ids);
+      EXPECT_EQ(inplace.shape(), gathered.shape());
+      ops::Slide(2, 0, 3)(inplace, prefix);
+      expect_storage_eq(prefix, expected);
+    }
+  }
+}
+
+TEST_P(OpDeviceTest, GatherPrefixInvalidArguments) {
+  Device device = GetParam();
+  StorageView data({3, 2, 5, 4}, 1.f, device);
+  const StorageView ids({1}, std::vector<int32_t>{0}, device);
+  StorageView output(device);
+  EXPECT_THROW(ops::GatherPrefix(0, 1)(data, ids, output), std::invalid_argument);
+  EXPECT_THROW(ops::GatherPrefix(2, 6)(data, ids, output), std::invalid_argument);
+  EXPECT_THROW(ops::GatherPrefix(4, 1)(data, ids, output), std::invalid_argument);
 }
 
 TEST_P(OpDeviceTest, Transpose2D) {

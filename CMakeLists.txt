@@ -166,6 +166,7 @@ set(SOURCES
   src/ops/flash_attention.cc
   src/ops/flash_attention_cpu.cc
   src/ops/gather.cc
+  src/ops/gather_prefix.cc
   src/ops/gated_activation.cc
   src/ops/gated_activation_cpu.cc
   src/ops/gather_cpu.cc
@@ -200,6 +201,7 @@ set(SOURCES
   src/ops/softmax_cpu.cc
   src/ops/split.cc
   src/ops/slide.cc
+  src/ops/slice_scatter.cc
   src/ops/sub.cc
   src/ops/sigmoid.cc
   src/ops/swish.cc

@@ -6,6 +6,7 @@
 #include "conv1d.h"
 #include "cos.h"
 #include "gather.h"
+#include "gather_prefix.h"
 #include "gated_activation.h"
 #include "gelu.h"
 #include "gemm.h"
@@ -41,6 +42,7 @@
 #include "split_qkv_heads.h"
 #include "alibi_add.h"
 #include "slide.h"
+#include "slice_scatter.h"
 #include "nccl_ops.h"
 #include "flash_attention.h"
 #ifndef CT2_USE_HIP

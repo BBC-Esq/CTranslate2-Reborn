@@ -30,9 +30,15 @@ namespace ctranslate2 {
       : _device(device) {
     }
 
+    void Decoder::gather_state(const std::string&,
+                               StorageView& value,
+                               const StorageView& indices) const {
+      ops::Gather()(value, indices);
+    }
+
     void Decoder::update_state(DecoderState& state, const StorageView& alive_batches) const {
-      for (auto& pair : state) {
-        ops::Gather()(pair.second, alive_batches);
+      for (auto& [name, value] : state) {
+        gather_state(name, value, alive_batches);
       }
     }
 
@@ -48,9 +54,9 @@ namespace ctranslate2 {
 
       for (auto& [name, value] : state) {
         if (replicate_state(name))
-          ops::Gather()(value, beam_indices);
+          gather_state(name, value, beam_indices);
         else if (alive_batches)
-          ops::Gather()(value, *alive_batches);
+          gather_state(name, value, *alive_batches);
       }
     }
 

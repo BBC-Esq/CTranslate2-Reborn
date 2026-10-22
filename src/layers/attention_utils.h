@@ -26,7 +26,8 @@ namespace ctranslate2 {
                                Alibi* alibi = nullptr,
                                StorageView* position_bias = nullptr,
                                bool interleaved_queries = false,
-                               dim_t sliding_window = 0);
+                               dim_t sliding_window = 0,
+                               dim_t num_keys = 0);
 
   }
 }

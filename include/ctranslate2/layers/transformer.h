@@ -102,7 +102,8 @@ namespace ctranslate2 {
                       const Padder* memory_padder = nullptr,
                       bool return_normalized_attention = true,
                       StorageView* position_bias = nullptr,
-                      dim_t offset = 0) const;
+                      dim_t offset = 0,
+                      dim_t static_cache_capacity = 0) const;
 
       DataType output_type() const override {
         return _ff.output_type();
@@ -110,6 +111,10 @@ namespace ctranslate2 {
 
       dim_t output_size() const override {
         return _ff.output_size();
+      }
+
+      bool has_merged_encoder_attention() const {
+        return _has_merged_encoder_attention;
       }
 
       bool has_cross_attention() const {
@@ -209,10 +214,24 @@ namespace ctranslate2 {
                   StorageView* attention = nullptr,
                   bool return_logits = true);
 
+      // Preallocates the self-attention keys and values of the following decodings for
+      // `capacity` positions, which must cover all the positions they decode. Each step then
+      // writes its keys and values in place instead of growing the cache. 0 restores the
+      // growing cache.
+      void set_static_cache_capacity(dim_t capacity);
+
+      dim_t static_cache_capacity() const {
+        return _static_cache_capacity;
+      }
+
     protected:
       Dense& output_layer() override {
         return _proj;
       }
+
+      void gather_state(const std::string& name,
+                        StorageView& value,
+                        const StorageView& indices) const override;
 
       const dim_t _num_heads;
       const ComputeType _compute_type;
@@ -238,6 +257,10 @@ namespace ctranslate2 {
       // false when each layer has its own relative attention bias (e.g. UMT5), in which
       // case the position bias is computed per layer instead of being shared.
       const bool _shared_position_bias;
+      // Positions preallocated in the self-attention cache, or 0 when the cache grows.
+      dim_t _static_cache_capacity = 0;
+      // Positions written in the static cache by the last decoding step.
+      dim_t _static_cache_length = 0;
     };
 
   }

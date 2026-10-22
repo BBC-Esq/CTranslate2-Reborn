@@ -221,7 +221,8 @@ namespace ctranslate2 {
                                              const Padder* memory_padder,
                                              bool return_normalized_attention,
                                              StorageView* position_bias,
-                                             dim_t offset) const {
+                                             dim_t offset,
+                                             dim_t static_cache_capacity) const {
       PROFILE("TransformerDecoderLayer");
 
       const DataType dtype = input.dtype();
@@ -234,6 +235,9 @@ namespace ctranslate2 {
         (*_input_layer_norm)(input, hidden);
 
         if (_has_merged_encoder_attention) {
+          if (static_cache_capacity > 0)
+            throw std::invalid_argument("A static cache is not supported with merged encoder "
+                                        "attention");
           static_cast<MultiHeadAttention*>(_self_attention.get())->forward_merged(
             hidden,
             memory,
@@ -259,7 +263,8 @@ namespace ctranslate2 {
                              input_padder,
                              true,
                              position_bias,
-                             offset);
+                             offset,
+                             static_cache_capacity);
         }
         (*_post_attention_layer_norm)(context, output);
         ops::Add()(output, input, output);
@@ -333,7 +338,8 @@ namespace ctranslate2 {
                         input_padder,
                         true,
                         position_bias,
-                        offset);
+                        offset,
+                        static_cache_capacity);
 
         if (_post_attention_layer_norm)
           (*_post_attention_layer_norm)(input, hidden);
@@ -357,7 +363,8 @@ namespace ctranslate2 {
                       input_padder,
                       true,
                       position_bias,
-                      offset);
+                      offset,
+                      static_cache_capacity);
 
       StorageView context(dtype, device);
       if (_encoder_attention) {
@@ -604,6 +611,46 @@ namespace ctranslate2 {
       return !_with_encoder_attention || !starts_with(name, "memory");
     }
 
+    void TransformerDecoder::set_static_cache_capacity(dim_t capacity) {
+      if (capacity < 0)
+        throw std::invalid_argument("The static cache capacity must be positive, or 0 to disable "
+                                    "the static cache");
+
+      if (capacity > 0) {
+        if (_sliding_window > 0)
+          throw std::invalid_argument("A static cache is not supported with sliding window "
+                                      "attention");
+        if (_use_flash_attention)
+          throw std::invalid_argument("A static cache is not supported with Flash Attention");
+        for (const auto& layer : _layers) {
+          if (layer->has_merged_encoder_attention())
+            throw std::invalid_argument("A static cache is not supported with merged encoder "
+                                        "attention");
+        }
+      }
+
+      _static_cache_capacity = capacity;
+      _static_cache_length = 0;
+    }
+
+    void TransformerDecoder::gather_state(const std::string& name,
+                                          StorageView& value,
+                                          const StorageView& indices) const {
+      // Only the first positions of a static cache were written, so only they are gathered.
+      // The time dimension of the cache is the one before the depth, whatever its layout.
+      const bool is_static_cache = (_static_cache_capacity > 0
+                                    && value
+                                    && value.rank() >= 3
+                                    && value.dim(-2) == _static_cache_capacity
+                                    && (starts_with(name, "self_keys")
+                                        || starts_with(name, "self_values")));
+
+      if (is_static_cache)
+        ops::GatherPrefix(value.rank() - 2, _static_cache_length)(value, indices);
+      else
+        Decoder::gather_state(name, value, indices);
+    }
+
     void TransformerDecoder::set_alignment_heads(const dim_t layer,
                                                  const dim_t num_heads_to_average) {
       std::vector<dim_t> range(num_heads_to_average);
@@ -783,6 +830,9 @@ namespace ctranslate2 {
       StorageView position_bias(dtype, device);
       StorageView* position_bias_ptr = _shared_position_bias ? &position_bias : nullptr;
 
+      // A static cache only applies when the keys and values are cached at each step.
+      const dim_t static_cache_capacity = step >= 0 ? _static_cache_capacity : 0;
+
       std::vector<StorageView> chunks;
       if (chunked) {
         std::vector<dim_t> chunk_sizes;
@@ -854,7 +904,8 @@ namespace ctranslate2 {
                         memory_padder.get(),
                         return_normalized_attention(),
                         position_bias_ptr,
-                        offset);
+                        offset,
+                        static_cache_capacity);
           layer_in_chunk = std::move(layer_out);
 
           if (layer_attention) {
@@ -867,6 +918,10 @@ namespace ctranslate2 {
 
       if (chunked)
         layer_in = std::move(chunks.back());
+
+      // The next update of the state gathers the positions written so far.
+      if (static_cache_capacity > 0)
+        _static_cache_length = std::max(step, dim_t(0)) + max_time;
 
       if (step == 0) {
         // The memory is no longer needed as its projections were cached in the first step.

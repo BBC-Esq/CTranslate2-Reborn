@@ -1,4 +1,5 @@
 #include "ctranslate2/layers/attention.h"
+#include "ctranslate2/ops/slice_scatter.h"
 #include "ctranslate2/ops/split.h"
 #include "ctranslate2/utils.h"
 
@@ -195,13 +196,17 @@ namespace ctranslate2 {
                                       dim_t beam_size = 1,
                                       Alibi* alibi = nullptr,
                                       StorageView* position_bias = nullptr,
-                                      dim_t sliding_window = 0) {
+                                      dim_t sliding_window = 0,
+                                      dim_t num_keys = 0) {
       PROFILE("dot_product_attention");
+
+      // With a static cache, the keys and values are preallocated for more positions than were
+      // written, and the queries attend to the first num_keys positions only.
+      const dim_t key_length = num_keys > 0 ? num_keys : keys.dim(-2);
 
       std::unique_ptr<const StorageView> relative_positions;
       if (relative_position_keys || relative_position_values || relative_asymmetric_position_keys) {
         const dim_t query_length = queries.dim(2);
-        const dim_t key_length = keys.dim(2);
         if (relative_asymmetric_position_keys)
           relative_positions = std::make_unique<StorageView>(
             make_asymmetric_relative_positions(query_length,
@@ -230,9 +235,9 @@ namespace ctranslate2 {
       }
 
       const ops::MatMul keys_matmul(/*trans_a=*/false, /*trans_b=*/true, queries_scale);
-      keys_matmul(grouped_heads ? grouped_queries : queries, keys, output);
+      keys_matmul(grouped_heads ? grouped_queries : queries, keys, output, key_length);
       if (grouped_heads)
-        output.reshape({queries.dim(0), queries.dim(1), queries.dim(2), keys.dim(2)});
+        output.reshape({queries.dim(0), queries.dim(1), queries.dim(2), key_length});
       if (relative_position_keys)
         add_relative_representations(queries,
                                      *relative_positions,
@@ -254,7 +259,6 @@ namespace ctranslate2 {
 
         if (position_bias->empty()) {
           const dim_t query_length = queries.dim(2);
-          const dim_t key_length = keys.dim(2);
           *position_bias = compute_relative_bias(*relative_attention_bias,
                                                  query_length,
                                                  key_length,
@@ -295,11 +299,11 @@ namespace ctranslate2 {
       const ops::MatMul values_matmul;
       if (grouped_heads) {
         attn.reshape({queries.dim(0), keys.dim(1), -1, attn.dim(-1)});
-        values_matmul(attn, values, output);
+        values_matmul(attn, values, output, key_length);
         attn.reshape({queries.dim(0), queries.dim(1), queries.dim(2), attn.dim(-1)});
         output.reshape({queries.dim(0), queries.dim(1), queries.dim(2), values.dim(3)});
       } else {
-        values_matmul(attn, values, output);
+        values_matmul(attn, values, output, key_length);
       }
       if (relative_position_values)
         add_relative_representations(attn,
@@ -318,6 +322,37 @@ namespace ctranslate2 {
       x.expand_dims(2);
       ops::Tile(2, repeats)(x);
       x.reshape({x.dim(0), x.dim(1) * x.dim(2), x.dim(3), x.dim(4)});
+    }
+
+    // Writes the keys or values of the decoded positions into a cache preallocated for capacity
+    // positions along time_dim, and allocates the cache when the first positions are decoded.
+    // The positions after the written ones are uninitialized, and the attention never reads them.
+    static void write_to_static_cache(const StorageView& new_values,
+                                      StorageView& cache,
+                                      const dim_t time_dim,
+                                      const dim_t offset,
+                                      const dim_t capacity) {
+      const dim_t num_new_positions = new_values.dim(time_dim);
+      if (offset + num_new_positions > capacity)
+        throw std::runtime_error("The static cache has room for " + std::to_string(capacity)
+                                 + " positions, but positions up to "
+                                 + std::to_string(offset + num_new_positions)
+                                 + " were decoded");
+
+      if (cache.empty()) {
+        if (offset != 0)
+          throw std::runtime_error("A static cache is filled from the first position, but the "
+                                   "first decoded position is " + std::to_string(offset));
+        Shape shape(new_values.shape());
+        shape[time_dim] = capacity;
+        cache = StorageView(std::move(shape), new_values.dtype(), new_values.device());
+      } else if (cache.dim(time_dim) != capacity) {
+        throw std::runtime_error("The cache has room for " + std::to_string(cache.dim(time_dim))
+                                 + " positions instead of the static cache capacity of "
+                                 + std::to_string(capacity));
+      }
+
+      ops::SliceScatter(time_dim, offset)(new_values, cache);
     }
 
     MultiHeadAttention::MultiHeadAttention(const models::Model& model,
@@ -499,7 +534,8 @@ namespace ctranslate2 {
                                         const Padder* values_padder,
                                         bool return_normalized_attention,
                                         StorageView* position_bias,
-                                        dim_t offset) const {
+                                        dim_t offset,
+                                        dim_t static_cache_capacity) const {
       PROFILE("MultiHeadAttention");
       const Device device = queries.device();
       const DataType dtype = queries.dtype();
@@ -522,6 +558,18 @@ namespace ctranslate2 {
       // _sliding_window positions only, its own included. The cache keeps just those keys.
       const bool sliding_window = _sliding_window > 0 && _self_attention && _is_decoder;
       dim_t num_cached_keys = 0;
+
+      // With a static cache, the queries attend to the first num_static_keys positions of
+      // preallocated keys and values (0 when the cache grows at each step instead).
+      const bool static_cache = static_cache_capacity > 0 && cached_keys != nullptr;
+      dim_t num_static_keys = 0;
+      if (static_cache) {
+        if (!_self_attention)
+          throw std::invalid_argument("A static cache is only supported for self-attention");
+        if (sliding_window)
+          throw std::invalid_argument("A static cache is not supported with sliding window "
+                                      "attention");
+      }
       const auto trim_cache = [&]() {
         const dim_t time = cached_keys->dim(_cache_time_dim);
         if (time <= _sliding_window)
@@ -604,7 +652,13 @@ namespace ctranslate2 {
           }
         }
 
-        if (cached_keys != nullptr) {
+        if (static_cache) {
+          write_to_static_cache(keys_proj, *cached_keys, _cache_time_dim, offset,
+                                static_cache_capacity);
+          write_to_static_cache(values_proj, *cached_values, _cache_time_dim, offset,
+                                static_cache_capacity);
+          num_static_keys = offset + keys_proj.dim(_cache_time_dim);
+        } else if (cached_keys != nullptr) {
           if (cached_keys->empty()) {
             *cached_keys = std::move(keys_proj);
             *cached_values = std::move(values_proj);
@@ -659,7 +713,8 @@ namespace ctranslate2 {
                             beam_size,
                             _alibi,
                             position_bias,
-                            sliding_window ? _sliding_window : 0);
+                            sliding_window ? _sliding_window : 0,
+                            num_static_keys);
 
       // Several queries were masked to their windows: keep the keys of the last window.
       if (sliding_window && values_lengths && cached_keys)

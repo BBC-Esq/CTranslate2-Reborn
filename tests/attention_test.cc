@@ -270,3 +270,182 @@ TEST_F(CrossAttentionTest, StandardMultiHeadAttention) {
   ASSERT_EQ(cached_keys.shape(), (Shape{BATCH, NUM_HEADS, V_LEN, D_HEAD}));
   ASSERT_EQ(cached_values.shape(), cached_keys.shape());
 }
+
+// A static cache writes the keys and values of each step in place into buffers preallocated
+// for all the positions, and gives the same outputs as the cache that grows at each step,
+// including after the batches are reordered like in beam search.
+struct StaticCacheParams {
+  dim_t num_heads_kv;
+  bool multi_query;
+  FloatType type;
+};
+
+class StaticCacheTest : public ::testing::TestWithParam<StaticCacheParams> {
+};
+
+static ComputeType float_compute_type(const DataType dtype) {
+  switch (dtype) {
+  case DataType::FLOAT16:
+    return ComputeType::FLOAT16;
+  case DataType::BFLOAT16:
+    return ComputeType::BFLOAT16;
+  default:
+    return ComputeType::FLOAT32;
+  }
+}
+
+TEST_P(StaticCacheTest, MatchesGrowingCache) {
+  constexpr dim_t NUM_HEADS = 4, D_HEAD = 16;
+  constexpr dim_t D_MODEL = NUM_HEADS * D_HEAD;
+  constexpr dim_t BATCH = 3, PROMPT = 5, STEPS = 6, CAPACITY = PROMPT + STEPS + 2;
+  const StaticCacheParams params = GetParam();
+  const Device device = params.type.device;
+  const DataType dtype = params.type.dtype;
+  const float error = params.type.error;
+
+  const auto make_values = [](dim_t size, float seed) {
+    std::vector<float> values(size);
+    for (dim_t i = 0; i < size; ++i)
+      values[i] = 0.05f * std::sin(seed + 0.37f * i);
+    return values;
+  };
+  const auto make_input = [&](Shape shape, float seed) {
+    const dim_t size = compute_size(shape);
+    return StorageView(std::move(shape), make_values(size, seed)).to(device).to(dtype);
+  };
+
+  class SelfAttentionModel : public models::Model {
+  public:
+    SelfAttentionModel(dim_t num_heads_kv, bool multi_query, const std::vector<float>& qkv,
+                       const std::vector<float>& o, Device device, DataType dtype) {
+      register_variable("attn/linear_0/weight",
+                        StorageView({dim_t(qkv.size()) / D_MODEL, D_MODEL}, qkv));
+      register_variable("attn/linear_1/weight", StorageView({D_MODEL, NUM_HEADS * D_HEAD}, o));
+      if (multi_query)
+        register_variable("attn/multi_query", StorageView(static_cast<int8_t>(1)));
+      else
+        register_variable("attn/num_heads_kv", StorageView(static_cast<int32_t>(num_heads_kv)));
+      set_compute_type(float_compute_type(dtype), device, 0, /*update_weight=*/true);
+      set_device(device, 0);
+    }
+  protected:
+    std::unique_ptr<Model> clone() const override { return nullptr; }
+  };
+
+  const dim_t qkv_rows = (NUM_HEADS + 2 * params.num_heads_kv) * D_HEAD;
+  const SelfAttentionModel model(params.num_heads_kv,
+                                 params.multi_query,
+                                 make_values(qkv_rows * D_MODEL, 1),
+                                 make_values(D_MODEL * NUM_HEADS * D_HEAD, 2),
+                                 device,
+                                 dtype);
+  const layers::MultiHeadAttention attention(model, "attn", NUM_HEADS, /*self_attention=*/true,
+                                             /*pre_norm=*/true, /*is_decoder=*/true);
+
+  const StorageView prompt = make_input({BATCH, PROMPT, D_MODEL}, 3);
+  const StorageView lengths({BATCH}, std::vector<int32_t>{PROMPT, PROMPT - 2, PROMPT}, device);
+  const StorageView mask = layers::MultiHeadAttention::prepare_length_mask(
+    lengths, NUM_HEADS, PROMPT, /*mask_future=*/true, params.multi_query);
+
+  StorageView growing_keys(dtype, device), growing_values(dtype, device);
+  StorageView growing_output(dtype, device);
+  StorageView static_keys(dtype, device), static_values(dtype, device);
+  StorageView static_output(dtype, device);
+  attention(prompt, prompt, &mask, growing_output, &growing_keys, &growing_values);
+  attention(prompt, prompt, &mask, static_output, &static_keys, &static_values,
+            nullptr, nullptr, nullptr, true, nullptr, /*offset=*/0, CAPACITY);
+  expect_storage_eq(static_output.to_float32(), growing_output.to_float32(), error);
+
+  // The cache keeps its layout, with room for CAPACITY positions along the time dimension.
+  const dim_t time_dim = static_keys.rank() - 2;
+  Shape expected_shape(growing_keys.shape());
+  expected_shape[time_dim] = CAPACITY;
+  EXPECT_EQ(static_keys.shape(), expected_shape);
+  EXPECT_EQ(static_values.shape(), expected_shape);
+
+  dim_t batch_size = BATCH;
+  for (dim_t step = 0; step < STEPS; ++step) {
+    const dim_t offset = PROMPT + step;
+    const StorageView input = make_input({batch_size, 1, D_MODEL}, 4 + step);
+    attention(input, input, nullptr, growing_output, &growing_keys, &growing_values,
+              nullptr, nullptr, nullptr, true, nullptr, offset);
+    attention(input, input, nullptr, static_output, &static_keys, &static_values,
+              nullptr, nullptr, nullptr, true, nullptr, offset, CAPACITY);
+    expect_storage_eq(static_output.to_float32(), growing_output.to_float32(), error);
+    EXPECT_EQ(static_keys.dim(time_dim), CAPACITY);
+
+    // The written positions of the static cache are the growing cache.
+    StorageView written_keys(dtype, device), written_values(dtype, device);
+    ops::Slide(time_dim, 0, offset + 1)(static_keys, written_keys);
+    ops::Slide(time_dim, 0, offset + 1)(static_values, written_values);
+    expect_storage_eq(written_keys.to_float32(), growing_keys.to_float32());
+    expect_storage_eq(written_values.to_float32(), growing_values.to_float32());
+
+    // Reorder the batches like beam search, then drop one batch.
+    std::vector<int32_t> indices;
+    if (step == 1)
+      indices = {2, 0, 0};
+    else if (step == 3)
+      indices = {0, 2};
+    if (!indices.empty()) {
+      const StorageView ids({dim_t(indices.size())}, indices, device);
+      ops::Gather()(growing_keys, ids);
+      ops::Gather()(growing_values, ids);
+      ops::GatherPrefix(time_dim, offset + 1)(static_keys, ids);
+      ops::GatherPrefix(time_dim, offset + 1)(static_values, ids);
+      batch_size = indices.size();
+    }
+  }
+
+  // The cache has no room for more positions.
+  const StorageView input = make_input({batch_size, 1, D_MODEL}, 20);
+  EXPECT_THROW(attention(input, input, nullptr, static_output, &static_keys, &static_values,
+                         nullptr, nullptr, nullptr, true, nullptr, CAPACITY, CAPACITY),
+               std::runtime_error);
+
+  // An empty static cache must be filled from the first position.
+  StorageView empty_keys(dtype, device), empty_values(dtype, device);
+  EXPECT_THROW(attention(input, input, nullptr, static_output, &empty_keys, &empty_values,
+                         nullptr, nullptr, nullptr, true, nullptr, /*offset=*/3, CAPACITY),
+               std::runtime_error);
+}
+
+static std::string static_cache_test_name(
+  const ::testing::TestParamInfo<StaticCacheParams>& info) {
+  const auto& params = info.param;
+  const std::string heads = (params.multi_query
+                             ? "MultiQuery"
+                             : params.num_heads_kv == 4 ? "MultiHead" : "GroupedQuery");
+  return heads + "_" + dtype_name(params.type.dtype);
+}
+
+static std::vector<StaticCacheParams> static_cache_test_params(const FloatType& type) {
+  return {
+    StaticCacheParams{4, false, type},  // multi-head attention
+    StaticCacheParams{2, false, type},  // grouped-query attention
+    StaticCacheParams{1, true, type},   // multi-query attention, with merged time and heads
+  };
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  CPU,
+  StaticCacheTest,
+  ::testing::ValuesIn(static_cache_test_params(FloatType{Device::CPU, DataType::FLOAT32, 1e-6})),
+  static_cache_test_name);
+#ifdef CT2_WITH_CUDA
+INSTANTIATE_TEST_SUITE_P(
+  CUDA_FLOAT32,
+  StaticCacheTest,
+  ::testing::ValuesIn(static_cache_test_params(FloatType{Device::CUDA, DataType::FLOAT32, 1e-5})),
+  static_cache_test_name);
+INSTANTIATE_TEST_SUITE_P(
+  CUDA_FLOAT16,
+  StaticCacheTest,
+  ::testing::ValuesIn(static_cache_test_params(FloatType{Device::CUDA, DataType::FLOAT16, 1e-3})),
+  static_cache_test_name);
+INSTANTIATE_TEST_SUITE_P(
+  CUDA_BFLOAT16,
+  StaticCacheTest,
+  ::testing::ValuesIn(static_cache_test_params(FloatType{Device::CUDA, DataType::BFLOAT16, 1e-2})),
+  static_cache_test_name);
+#endif

@@ -1,4 +1,7 @@
 #include "ctranslate2/ops/gather.h"
+#include "ctranslate2/ops/gather_prefix.h"
+
+#include <type_traits>
 
 #include <thrust/gather.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -90,13 +93,93 @@ namespace ctranslate2 {
       }
     }
 
+    // Copies the first prefix_size units of each slice of slice_size units. The output has
+    // num_slices slices for each index, read from the slices of the data row at that index.
+    template <typename U>
+    __global__ void gather_prefix_kernel(const U* src,
+                                         U* dst,
+                                         const int32_t* indices,
+                                         const cuda::index_t num_slices,
+                                         const cuda::index_t slice_size,
+                                         const cuda::index_t prefix_size,
+                                         const cuda::index_t size) {
+      for (cuda::index_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
+        const cuda::index_t slice = i / prefix_size;
+        const cuda::index_t offset = i - slice * prefix_size;
+        const cuda::index_t row = slice / num_slices;
+        const cuda::index_t row_slice = slice - row * num_slices;
+        const cuda::index_t src_slice = cuda::index_t(indices[row]) * num_slices + row_slice;
+        dst[slice * slice_size + offset] = src[src_slice * slice_size + offset];
+      }
+    }
+
+    template <typename U>
+    static void run_gather_prefix(const void* src,
+                                  void* dst,
+                                  const int32_t* indices,
+                                  const dim_t num_indices,
+                                  const dim_t num_slices,
+                                  const dim_t slice_bytes,
+                                  const dim_t prefix_bytes) {
+      const dim_t slice_size = slice_bytes / sizeof (U);
+      const dim_t prefix_size = prefix_bytes / sizeof (U);
+      const dim_t size = num_indices * num_slices * prefix_size;
+      const dim_t threads = 256;
+      const dim_t blocks = std::min(ceil_divide(size, threads), cuda::max_blocks);
+      gather_prefix_kernel<<<blocks, threads, 0, cuda::get_cuda_stream()>>>(
+        static_cast<const U*>(src),
+        static_cast<U*>(dst),
+        indices,
+        num_slices,
+        slice_size,
+        prefix_size,
+        size);
+    }
+
+    template <Device D, typename T>
+    void GatherPrefix::compute(const StorageView& data,
+                               const StorageView& indices,
+                               const dim_t axis,
+                               StorageView& output) const {
+      const dim_t row_size = data.stride(0);
+      const dim_t slice_size = data.dim(axis) * data.stride(axis);
+      const dim_t num_slices = row_size / slice_size;
+      const dim_t slice_bytes = slice_size * sizeof (T);
+      const dim_t prefix_bytes = _length * data.stride(axis) * sizeof (T);
+      const void* src = data.data<T>();
+      void* dst = output.data<T>();
+
+      const auto aligned = [](const void* ptr) {
+        return reinterpret_cast<uintptr_t>(ptr) % sizeof (uint4) == 0;
+      };
+
+      using Raw = std::conditional_t<sizeof (T) == 1, uint8_t,
+                  std::conditional_t<sizeof (T) == 2, uint16_t,
+                  std::conditional_t<sizeof (T) == 4, uint32_t, uint64_t>>>;
+
+      if (slice_bytes % sizeof (uint4) == 0
+          && prefix_bytes % sizeof (uint4) == 0
+          && aligned(src)
+          && aligned(dst))
+        run_gather_prefix<uint4>(src, dst, indices.data<int32_t>(), indices.size(),
+                                 num_slices, slice_bytes, prefix_bytes);
+      else
+        run_gather_prefix<Raw>(src, dst, indices.data<int32_t>(), indices.size(),
+                               num_slices, slice_bytes, prefix_bytes);
+    }
+
 #define DECLARE_IMPL(T)                                                 \
     template void                                                       \
     Gather::compute<Device::CUDA, T>(const StorageView& data,           \
                                      const StorageView& input,          \
                                      const dim_t axis,                  \
                                      const dim_t batch_dims,            \
-                                     StorageView& output) const;
+                                     StorageView& output) const;        \
+    template void                                                       \
+    GatherPrefix::compute<Device::CUDA, T>(const StorageView& data,     \
+                                           const StorageView& indices,  \
+                                           const dim_t axis,            \
+                                           StorageView& output) const;
 
     DECLARE_ALL_TYPES(DECLARE_IMPL)
 

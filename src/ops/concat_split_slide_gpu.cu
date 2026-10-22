@@ -1,6 +1,7 @@
 #include "ctranslate2/ops/concat.h"
 #include "ctranslate2/ops/split.h"
 #include "ctranslate2/ops/slide.h"
+#include "ctranslate2/ops/slice_scatter.h"
 
 #include <type_traits>
 
@@ -285,6 +286,57 @@ namespace ctranslate2 {
       }
     }
 
+    template <Device D, typename T>
+    void SliceScatter::compute(const StorageView& input,
+                               StorageView& output,
+                               const dim_t axis) const {
+      const T* input_data = input.data<T>();
+      T* output_data = output.data<T>();
+      const dim_t input_size = input.size();
+
+      if (axis == 0) {
+        primitives<D>::copy(input_data, output_data + _index * output.stride(0), input_size);
+        return;
+      }
+
+      // Each input value goes to the same index in the output, shifted by _index along the axis.
+      const dim_t input_dim = input.dim(axis);
+      const dim_t output_dim = output.dim(axis);
+      const dim_t inner_size = output.stride(axis);
+      const dim_t inner_bytes = inner_size * sizeof (T);
+      const dim_t input_bytes = input_size * sizeof (T);
+      const auto aligned = [](const void* ptr) {
+        return reinterpret_cast<uintptr_t>(ptr) % sizeof (uint4) == 0;
+      };
+
+      if (inner_size == 1) {
+        auto map_ids = thrust::make_transform_iterator(
+          thrust::counting_iterator<cuda::index_t>(0),
+          depth_offset_map<cuda::index_t>(_index, input_dim, output_dim));
+        THRUST_CALL(thrust::scatter, input_data, input_data + input_size, map_ids, output_data);
+      } else if (inner_bytes % sizeof (uint4) == 0
+                 && input_bytes % sizeof (uint4) == 0
+                 && aligned(input_data)
+                 && aligned(output_data)) {
+        auto map_ids = thrust::make_transform_iterator(
+          thrust::counting_iterator<cuda::index_t>(0),
+          inner_dim_offset_map<cuda::index_t>(_index,
+                                              input_dim,
+                                              output_dim,
+                                              inner_bytes / sizeof (uint4)));
+        THRUST_CALL(thrust::scatter,
+                    reinterpret_cast<const uint4*>(input_data),
+                    reinterpret_cast<const uint4*>(input_data + input_size),
+                    map_ids,
+                    reinterpret_cast<uint4*>(output_data));
+      } else {
+        auto map_ids = thrust::make_transform_iterator(
+          thrust::counting_iterator<cuda::index_t>(0),
+          inner_dim_offset_map<cuda::index_t>(_index, input_dim, output_dim, inner_size));
+        THRUST_CALL(thrust::scatter, input_data, input_data + input_size, map_ids, output_data);
+      }
+    }
+
 #define DECLARE_IMPL(T)                                                 \
     template void                                                       \
     Concat::compute<Device::CUDA, T>(const std::vector<const StorageView*>& inputs, \
@@ -294,7 +346,11 @@ namespace ctranslate2 {
                                     std::vector<StorageView*>& outputs) const;      \
     template void                                                       \
     Slide::compute<Device::CUDA, T>(const StorageView& input,           \
-                                    StorageView& output, const dim_t& index) const;
+                                    StorageView& output, const dim_t& index) const; \
+    template void                                                       \
+    SliceScatter::compute<Device::CUDA, T>(const StorageView& input,    \
+                                           StorageView& output,         \
+                                           const dim_t axis) const;
     DECLARE_ALL_TYPES(DECLARE_IMPL)
 
   }

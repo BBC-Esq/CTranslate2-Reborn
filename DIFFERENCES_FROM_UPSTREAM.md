@@ -104,3 +104,9 @@ Qwen3-Embedding models, and other Qwen3-based embedding models such as Yuan-embe
 - [Test Qwen3-Embedding conversion of both checkpoint layouts](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/91f37b803082c2f948dc7519517344093b35d908)
 - [Refuse to convert Qwen3 models that add layers as Qwen3Embedding](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/e352c4bb53dc5e705831e420279f2142c1bdf997)
 - [Test an empty batch on a Qwen3-Embedding model](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/e18c2d5a274a1f7a7c83b4256b582074ea1906cb)
+
+## Caching allocator fix from upstream (2026-11-01)
+
+Upstream's fix, taken before its next release: with the caching memory allocator (`CT2_CUDA_ALLOCATOR=cub_caching`, the default on AMD GPUs since 4.8.4), freeing a model's output after the model is unloaded, or at exit, no longer crashes the process.
+
+- [Fix caching allocator shutdown segfaults (#2136)](https://github.com/BBC-Esq/CTranslate2-Reborn/commit/707aaaf196a515bfd6a2b84b56033c298b84b555)

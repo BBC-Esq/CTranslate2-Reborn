@@ -6,9 +6,10 @@ namespace ctranslate2 {
   namespace layers {
 
     // The gated activation op applies the activation and the product in one pass. Quantized
-    // layers keep applying the activation themselves.
+    // layers keep applying the activation themselves, and so does the Metal backend, which has
+    // no kernel for the op.
     static bool use_gated_activation_op(const models::Model& model, const std::string& scope) {
-      if (!model.layer_exists(scope + "/linear_0_noact"))
+      if (model.device() == Device::MPS || !model.layer_exists(scope + "/linear_0_noact"))
         return false;
       const StorageView* weight = model.get_variable_if_exists(scope + "/linear_0/weight");
       return weight && is_float_type(weight->dtype());

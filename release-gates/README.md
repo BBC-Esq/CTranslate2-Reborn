@@ -16,6 +16,9 @@ Prompts use `rajpurkar/squad` at revision `7b6d24c440a36b6815f21b70d25016731768d
 shuffled with seed 42 and capped at 512 input tokens.
 Invalid metrics and runtime errors fail immediately.
 
+This branch has no converter for opus-mt-en-de (the Marian architecture), so both
+builds translate with the model that the baseline converts.
+
 ## Performance
 
 Each task runs three sequential baseline/candidate pairs in alternating order.

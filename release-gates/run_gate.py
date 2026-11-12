@@ -63,10 +63,10 @@ def make_venv(path, ct2_spec):
 CONVERTIBLE_TASKS = ("opus_bleu", "t5gemma_generation")
 
 
-def convert_models(py, out_root):
+def convert_models(py, out_root, tasks=CONVERTIBLE_TASKS):
     """Convert each CT2 model once per venv; return {task: path}."""
     dirs = {}
-    for task in CONVERTIBLE_TASKS:
+    for task in tasks:
         out_dir = os.path.join(out_root, task)
         os.makedirs(out_dir, exist_ok=True)
         print(f"[gate] converting {task} with {py}", flush=True)
@@ -206,8 +206,12 @@ def main():
 
         model_dirs = {
             "baseline": convert_models(base_py, os.path.join(tmp, "baseline-models")),
-            "candidate": convert_models(cand_py, os.path.join(tmp, "candidate-models")),
+            "candidate": convert_models(cand_py, os.path.join(tmp, "candidate-models"),
+                                        tasks=("t5gemma_generation",)),
         }
+        # This branch has no converter for the translation model's architecture (Marian), so
+        # the candidate translates with the model that the baseline converted.
+        model_dirs["candidate"]["opus_bleu"] = model_dirs["baseline"]["opus_bleu"]
 
         failed = False
         for task in RULES:

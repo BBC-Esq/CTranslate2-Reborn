@@ -16,6 +16,9 @@ Invalid metrics and runtime errors fail immediately.
 Each task tests `default`, then `auto`, skipping `auto` only if both modes resolve
 identically on both wheels. Models are converted once per wheel and reused.
 
+This branch has no converter for opus-mt-en-de (the Marian architecture), so both
+builds translate with the model that the baseline converts.
+
 Measurements use three alternating baseline/candidate pairs in fresh processes,
 with warm-up, two CPU threads, and one worker. A median throughput drop >10%
 requires confirmation in 5 additional pairs. Quality failures remain blocking.

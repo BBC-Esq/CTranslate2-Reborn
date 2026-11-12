@@ -1,4 +1,4 @@
-"""Release gate: compare candidate ctranslate2 against latest PyPI release.
+"""Release gate: compare a candidate ctranslate2-reborn against its latest PyPI release.
 
 Creates two venvs, runs the same tasks in each, exits non-zero on quality
 regressions or confirmed performance regressions.
@@ -45,7 +45,7 @@ MEASUREMENT_PAIRS = 3
 CONFIRMATION_PAIRS = 5
 
 
-def latest_version(pkg="ctranslate2"):
+def latest_version(pkg="ctranslate2-reborn"):
     with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=30) as r:
         return json.load(r)["info"]["version"]
 
@@ -57,8 +57,12 @@ def make_venv(path, ct2_spec):
     else:
         py = os.path.join(path, "bin", "python")
     subprocess.check_call([py, "-m", "pip", "install", "-q", "-U", "pip"])
-    subprocess.check_call([py, "-m", "pip", "install", "-q", ct2_spec,
+    subprocess.check_call([py, "-m", "pip", "install", "-q",
                            "-r", str(ROOT / "requirements.txt")])
+    # faster-whisper depends on upstream's ctranslate2, which installs the same files as
+    # ctranslate2-reborn: remove it, then install the build to measure.
+    subprocess.check_call([py, "-m", "pip", "uninstall", "-q", "-y", "ctranslate2"])
+    subprocess.check_call([py, "-m", "pip", "install", "-q", ct2_spec])
     return py
 
 
@@ -182,7 +186,7 @@ def evaluate_task(base_py, cand_py, task, limit, device, model_dirs, compute_typ
 def main():
     p = argparse.ArgumentParser()
     candidate = p.add_mutually_exclusive_group()
-    candidate.add_argument("--candidate-wheel", default="ctranslate2",
+    candidate.add_argument("--candidate-wheel", default="ctranslate2-reborn",
                    help="pip spec or wheel path (defaults to PyPI = self-test)")
     candidate.add_argument("--candidate-wheel-pattern",
                            help="glob matching exactly one candidate wheel")
@@ -199,7 +203,7 @@ def main():
             p.error(f"Expected exactly one candidate wheel, found {len(wheels)}: {wheels}")
         args.candidate_wheel = str(pathlib.Path(wheels[0]).resolve())
 
-    baseline_spec = f"ctranslate2=={latest_version()}"
+    baseline_spec = f"ctranslate2-reborn=={latest_version()}"
     print(f"[gate] baseline={baseline_spec} candidate={args.candidate_wheel}")
 
     with tempfile.TemporaryDirectory(prefix="release-gate-") as tmp:

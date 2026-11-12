@@ -1,7 +1,7 @@
 # Release gate
 
-Compares candidate wheels with the latest PyPI release and blocks publication on
-regressions. Tasks and thresholds are defined in `tasks.py` and `run_gate.py`.
+Compares candidate wheels with the latest `ctranslate2-reborn` release on PyPI and
+blocks publication on regressions. Tasks and thresholds are defined in `tasks.py` and `run_gate.py`.
 
 | Task | CI workload | Failure threshold |
 | --- | --- | --- |
@@ -22,7 +22,8 @@ requires confirmation in 5 additional pairs. Quality failures remain blocking.
 
 ## Running
 
-CI runs on PRs, tag pushes, and manual dispatches using CPython 3.12 wheels:
+CI runs when the workflow is started from the Actions tab and when a GitHub release
+is published, using CPython 3.12 wheels:
 Linux x86-64/ARM64 CPU, Windows x86-64 CPU, and macOS ARM64 CPU/MPS.
 MPS requires Apple Silicon and MPS-enabled wheels.
 

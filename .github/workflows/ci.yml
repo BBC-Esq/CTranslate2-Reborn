@@ -367,7 +367,7 @@ jobs:
           path: python/wheelhouse
 
   release-gate:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     needs: [build-python-wheels]
     uses: ./.github/workflows/release-gate.yml
 

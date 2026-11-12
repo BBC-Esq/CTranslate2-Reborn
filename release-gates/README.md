@@ -1,7 +1,7 @@
 # Release gate
 
-Compares candidate wheels against the latest PyPI release; publication requires
-passing the gate. Thresholds are in `run_gate.py` (`RULES`).
+Compares candidate wheels against the latest `ctranslate2-reborn` release on PyPI;
+publication requires passing the gate. Thresholds are in `run_gate.py` (`RULES`).
 
 | Task | CI workload | Failure threshold |
 | --- | --- | --- |
@@ -30,11 +30,12 @@ logged. This reduces runner noise at the cost of 3–6× benchmark work plus war
 ## Running
 
 CI tests one CPython 3.12 wheel per platform: Linux x86-64/ARM64, macOS ARM64,
-and Windows x86-64. The gate runs automatically on pull requests and on tag
-pushes, reusing the wheels built earlier in the CI pipeline.
+and Windows x86-64. The gate runs when the workflow is started from the Actions tab
+and when a GitHub release is published, reusing the wheels built earlier in the CI
+pipeline.
 
 ```sh
-python release-gates/run_gate.py --candidate-wheel dist/ctranslate2-*.whl
+python release-gates/run_gate.py --candidate-wheel dist/ctranslate2_reborn-*.whl
 ```
 
 Use `--candidate-wheel-pattern "dist/*.whl"` to require exactly one matching wheel.

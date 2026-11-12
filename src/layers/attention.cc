@@ -374,7 +374,7 @@ namespace ctranslate2 {
       if (alibi)
         alibi->apply(scores, queries_scale);
 
-      const ops::SoftMax softmax_op(/*log=*/false, sliding_window);
+      const ops::SoftMax softmax_op(/*log=*/false, windowed ? sliding_window : 0);
       StorageView attn(scores.dtype(), scores.device());
       if (attention && !return_normalized_attention) {
         softmax_op(scores, values_lengths, attn);
@@ -686,6 +686,20 @@ namespace ctranslate2 {
               combine_heads(keys_proj, _num_heads_kv);
               combine_heads(values_proj, _num_heads_kv);
             }
+          } else if (device == Device::MPS) {
+            // The Metal backend keeps upstream's operators, and its fused attention kernel takes
+            // keys and values with as many heads as the queries.
+            const ops::Split split_op(2, {_num_heads * _d_head, _num_heads_kv * _d_head, _num_heads_kv * _d_head});
+            split_op(fused_proj, queries_proj, keys_proj, values_proj);
+            split_heads(queries_proj, _num_heads);
+            split_heads(keys_proj, _num_heads_kv);
+            split_heads(values_proj, _num_heads_kv);
+
+            apply_qk_norm(queries_proj, keys_proj);
+            apply_v_norm(values_proj);
+
+            replicate_heads(keys_proj, _num_heads / _num_heads_kv);
+            replicate_heads(values_proj, _num_heads / _num_heads_kv);
           } else {
             ops::SplitQKVHeads(_num_heads, _num_heads_kv)(fused_proj, queries_proj, keys_proj, values_proj);
 
@@ -702,6 +716,12 @@ namespace ctranslate2 {
             }
           }
 
+        } else if (device == Device::MPS) {
+          split_heads(fused_proj, 3 * _num_heads, queries_padder);
+          ops::Split(1)(fused_proj, queries_proj, keys_proj, values_proj);
+
+          apply_qk_norm(queries_proj, keys_proj);
+          apply_v_norm(values_proj);
         } else {
           if (queries_padder)
             queries_padder->add_padding(fused_proj);
